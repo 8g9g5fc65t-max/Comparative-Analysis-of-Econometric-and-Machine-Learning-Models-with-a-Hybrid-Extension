@@ -3,10 +3,10 @@
 - **Source**: Yahoo! Finance, via the `yfinance` Python library
   (v0.2.55).
 - **Ticker**: `^GSPC` (S&P 500 index).
-- **Download date**: 2026-08-10 15:42 UTC
-- **Requested period**: 2011-01-01 to most recent available session
-- **Actual period returned**: 2011-01-03 to 2026-08-10
-  (3923 trading-day rows after cleaning)
+- **Download date**: 2026-08-10 16:19 UTC
+- **Requested period**: 2011-01-01 to 2026-07-07
+- **Actual period returned**: 2011-01-03 to 2026-07-07
+  (3899 trading-day rows after cleaning)
 - **Fields kept**: Date, Open, High, Low, Close, Adj Close, Volume.
 - **Raw file** (untouched pull): `data/raw/gspc_raw.csv`
 - **Processed file** (cleaned + log returns): `data/processed/gspc_processed.csv`

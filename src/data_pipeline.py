@@ -14,7 +14,9 @@ except ImportError:
 
 TICKER = "^GSPC"
 START_DATE = "2011-01-01"
-END_DATE = None
+# Fixed, not "today": keeps the dataset (and every downstream result) identical
+# on every re-run instead of silently growing each time the pipeline is run.
+END_DATE = "2026-07-07"
 OUTLIER_THRESHOLD = 0.10
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -26,7 +28,10 @@ REQUIRED_COLS = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
 
 
 def download_raw(ticker=TICKER, start=START_DATE, end=END_DATE):
-    df = yf.download(ticker, start=start, end=end, auto_adjust=False,
+    # yfinance's `end` is exclusive, so bump by a day to make END_DATE itself
+    # the last possible session included.
+    yf_end = (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d") if end else None
+    df = yf.download(ticker, start=start, end=yf_end, auto_adjust=False,
                       actions=False, progress=False, threads=False)
     if df.empty:
         raise RuntimeError(f"yfinance returned no data for {ticker}")

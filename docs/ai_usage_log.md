@@ -23,3 +23,12 @@ rewrite history.
   forward scheme, model list, VaR/ES approach, feature-set separation),
   and all judgment calls in `CLAUDE.md` — these are the author's, set
   before this session and given to the assistant as a brief.
+
+## 2026-08-10 — Froze data pipeline end date; built target/split (`features.py`)
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope**: Hardcoded the yfinance pull's end date to 2026-07-07 in
+  `src/data_pipeline.py` for reproducibility; re-ran it (3,899 rows). Wrote
+  `src/features.py`: 5-day-forward realised-vol target, 5/10/20-day trailing
+  historical vol, and the `TrainTestSplit` train/test scaffold (cutoff
+  2022-12-31), all built on the frozen dataset.
