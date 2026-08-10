@@ -42,3 +42,16 @@ rewrite history.
   Wrote `src/walkforward.py`: expanding-window engine with a duck-typed
   `fit`/`predict` model interface and daily/weekly refit cadence, smoke-
   tested with a throwaway naive baseline (not a thesis model).
+
+## 2026-08-10 — Econometric models (`src/models/econometric.py`)
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope**: Implemented EWMA (RiskMetrics-style, hand-rolled), GARCH(1,1)
+  and GJR-GARCH (both via `arch`), sharing one `annualize_5day_vol()` helper
+  so all three forecasts land on the same scale as `target_rv_5d`. Ran each
+  through the full daily-refit walk-forward loop over the test period
+  (2023-01-03 to 2026-07-07, 879 rows) as a sanity check: no NaN forecasts,
+  no `arch` convergence warnings, forecast ranges in the same ballpark as
+  the target (EWMA 0.073–0.482, GARCH 0.091–0.682, GJR 0.088–0.640 vs.
+  target 0.032–0.863), EWMA-vs-actual correlation 0.37 as a rough plausibility
+  check. MAE/RMSE/QLIKE deferred to `evaluation.py` (not built yet).
