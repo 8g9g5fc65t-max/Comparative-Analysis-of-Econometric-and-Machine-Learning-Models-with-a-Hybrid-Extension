@@ -55,3 +55,17 @@ rewrite history.
   the target (EWMA 0.073–0.482, GARCH 0.091–0.682, GJR 0.088–0.640 vs.
   target 0.032–0.863), EWMA-vs-actual correlation 0.37 as a rough plausibility
   check. MAE/RMSE/QLIKE deferred to `evaluation.py` (not built yet).
+
+## 2026-08-10 — First comparison table (`src/evaluation.py`)
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope**: Implemented MAE/RMSE (vol scale) and QLIKE (variance scale,
+  squares both series first, commented against silent "fixes"), aligning
+  forecasts/actuals by dropping NaN-actual rows before any metric. Confirmed
+  in code: `arch`'s variance forecast is divided by `RETURN_SCALE ** 2`
+  (10,000), not 100, before annualizing. Ran EWMA/GARCH(1,1)/GJR-GARCH over
+  the full daily-refit test period (874 valid rows) and saved
+  `results/tables/econometric_comparison.csv`. Result: GJR-GARCH ranks best
+  on all three metrics, GARCH(1,1) second, EWMA third but not far behind --
+  human should read the full ranking discussion in the assistant's reply,
+  not just this log line, before treating it as a conclusion.
