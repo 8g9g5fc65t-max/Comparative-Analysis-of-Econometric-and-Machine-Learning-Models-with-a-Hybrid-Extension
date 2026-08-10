@@ -69,3 +69,20 @@ rewrite history.
   on all three metrics, GARCH(1,1) second, EWMA third but not far behind --
   human should read the full ranking discussion in the assistant's reply,
   not just this log line, before treating it as a conclusion.
+
+## 2026-08-10 — Audit: nothing can implicitly re-trigger data_pipeline.py
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope**: Per `docs/risks_and_roadmap.md`'s yfinance-rate-limiting risk
+  item, searched the repo for anything that could re-run
+  `src/data_pipeline.py` as a side effect (grepped for `data_pipeline`
+  repo-wide, checked for a Makefile/notebook/shell/YAML automation script,
+  a `.github/` CI config, and any `__init__.py` package-level imports).
+  Found none of those, and confirmed every downstream script
+  (`features.py`, `walkforward.py`, `evaluation.py`,
+  `models/econometric.py`) reads `data/processed/gspc_processed.csv`
+  directly rather than importing `data_pipeline`. Also confirmed
+  `data_pipeline.py`'s own `main()` only runs under its
+  `if __name__ == "__main__"` guard, so even a hypothetical future import
+  of the module wouldn't trigger a download at import time. No code
+  changes made — audit only, nothing to fix.
