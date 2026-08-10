@@ -1,0 +1,17 @@
+# TFM — Dynamic Volatility and Market Risk Forecasting
+#
+# Pinned against the dev environment: Python 3.7.4 (Anaconda on Windows).
+# Notes on the pins below:
+#   - yfinance is capped at 0.2.55: newer releases require curl_cffi>=0.7
+#     and websockets>=13, neither of which ship wheels for Python 3.7.
+#     0.2.55 still speaks Yahoo's current (crumb-based) API correctly.
+#   - multitasking is pinned below 0.0.12: 0.0.13 imports typing.TypedDict,
+#     which doesn't exist before Python 3.8.
+#   - If/when this project moves to Python >=3.9, these two pins can be
+#     dropped and yfinance upgraded freely.
+
+yfinance==0.2.55
+multitasking==0.0.11
+pandas_market_calendars>=3.4
+pandas>=1.3
+numpy>=1.21
