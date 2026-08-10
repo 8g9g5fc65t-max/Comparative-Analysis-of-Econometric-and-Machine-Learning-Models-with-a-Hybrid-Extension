@@ -114,6 +114,19 @@ tfm-volatility-forecasting/
 - Every table/figure generated for the thesis should be reproducible from a
   script, not manually edited after export.
 
+## AI usage disclosure
+The university requires a transparent declaration of AI tool use in the
+final thesis (template already in `thesis/` guide docs). Keep a running,
+honest log of what Claude Code was used for in `docs/ai_usage_log.md` as we
+go, rather than reconstructing it at the end.
+
 ## Current status
-Data gathering is the first task. See README.md for how to run the
-pipeline once it exists.
+Data pipeline, walk-forward engine, and econometric models (EWMA, GARCH,
+GJR-GARCH) are built and evaluated. See README.md for how to run the
+pipeline.
+
+## Related docs
+`docs/risks_and_roadmap.md` tracks known risks/watch-items and a prioritized
+backlog of possible extensions. Not loaded automatically — check it when
+debugging something that feels like a recurring issue, or when deciding
+whether a stretch feature is worth building.
