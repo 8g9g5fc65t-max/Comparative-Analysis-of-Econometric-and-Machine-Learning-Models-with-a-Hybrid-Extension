@@ -32,3 +32,13 @@ rewrite history.
   `src/features.py`: 5-day-forward realised-vol target, 5/10/20-day trailing
   historical vol, and the `TrainTestSplit` train/test scaffold (cutoff
   2022-12-31), all built on the frozen dataset.
+
+## 2026-08-10 — Trimmed train boundary; built `walkforward.py`
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope**: `TrainTestSplit.split()` now trims the last 5 training rows
+  (not 4 — the assistant checked the math against a 5-day target window and
+  flagged the discrepancy) so no training target reaches past the cutoff.
+  Wrote `src/walkforward.py`: expanding-window engine with a duck-typed
+  `fit`/`predict` model interface and daily/weekly refit cadence, smoke-
+  tested with a throwaway naive baseline (not a thesis model).

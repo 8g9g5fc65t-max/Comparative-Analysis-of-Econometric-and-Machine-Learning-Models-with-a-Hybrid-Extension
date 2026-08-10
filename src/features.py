@@ -19,6 +19,7 @@ PROCESSED_PATH = REPO_ROOT / "data" / "processed" / "gspc_processed.csv"
 FEATURES_PATH = REPO_ROOT / "data" / "processed" / "gspc_features.csv"
 
 TARGET_WINDOW = 5
+TARGET_COL = "target_rv_5d"
 HIST_VOL_WINDOWS = (5, 10, 20)
 TRADING_DAYS_PER_YEAR = 252
 
@@ -48,7 +49,7 @@ def build_features(df):
     # not a bug: there is no 5-day-ahead target for the last 5 trading days
     # in the sample (walk-forward/evaluation code must drop or ignore them).
     fwd_sum_r2 = r2.rolling(TARGET_WINDOW).sum().shift(-TARGET_WINDOW)
-    df["target_rv_5d"] = np.sqrt((TRADING_DAYS_PER_YEAR / TARGET_WINDOW) * fwd_sum_r2)
+    df[TARGET_COL] = np.sqrt((TRADING_DAYS_PER_YEAR / TARGET_WINDOW) * fwd_sum_r2)
 
     # Trailing historical vol (uses r_{t-window+1}..r_t only -- no leakage).
     for w in HIST_VOL_WINDOWS:
@@ -65,20 +66,25 @@ class TrainTestSplit:
     def split(self, df):
         train = df[df["Date"] <= self.cutoff].reset_index(drop=True)
         test = df[df["Date"] > self.cutoff].reset_index(drop=True)
+        # The last TARGET_WINDOW train rows have a target that sums returns
+        # past the cutoff (row i's target uses r_{i+1}..r_{i+5}), so trim
+        # them -- every remaining training target is boundary-clean.
+        train = train.iloc[:-TARGET_WINDOW]
         return train, test
 
 
 def print_summary(df, train, test):
-    n_tail_nan = int(df["target_rv_5d"].isna().sum())
+    n_tail_nan = int(df[TARGET_COL].isna().sum())
     print("Full sample:", len(df), "rows,", df["Date"].min().date(), "to",
           df["Date"].max().date())
     print("NaN target rows at tail (no 5-day-ahead data yet):", n_tail_nan)
-    print(f"Train: {len(train)} rows, {train['Date'].min().date()} to "
+    print(f"Train: {len(train)} rows (boundary-clean, {TARGET_WINDOW} rows "
+          f"trimmed off the end), {train['Date'].min().date()} to "
           f"{train['Date'].max().date()} "
-          f"({train['target_rv_5d'].notna().sum()} with a valid target)")
+          f"({train[TARGET_COL].notna().sum()} with a valid target)")
     print(f"Test:  {len(test)} rows, {test['Date'].min().date()} to "
           f"{test['Date'].max().date()} "
-          f"({test['target_rv_5d'].notna().sum()} with a valid target)")
+          f"({test[TARGET_COL].notna().sum()} with a valid target)")
 
 
 def main():
