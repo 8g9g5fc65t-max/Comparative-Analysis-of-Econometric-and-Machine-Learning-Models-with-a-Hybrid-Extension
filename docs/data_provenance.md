@@ -3,7 +3,7 @@
 - **Source**: Yahoo! Finance, via the `yfinance` Python library
   (v0.2.55).
 - **Ticker**: `^GSPC` (S&P 500 index).
-- **Download date**: 2026-08-10 15:29 UTC
+- **Download date**: 2026-08-10 15:42 UTC
 - **Requested period**: 2011-01-01 to most recent available session
 - **Actual period returned**: 2011-01-03 to 2026-08-10
   (3923 trading-day rows after cleaning)
@@ -46,7 +46,7 @@ be used to draw conclusions about buy-and-hold P&L.
 ## Flagged calendar gaps (NYSE sessions vs. pulled dates)
 
 - Missing sessions (on NYSE calendar, absent from pull): 2025-01-09
-- Unexpected non-session dates: none.
+- Unexpected dates (in pull, not an NYSE session): none.
 
 ## Return definition
 
