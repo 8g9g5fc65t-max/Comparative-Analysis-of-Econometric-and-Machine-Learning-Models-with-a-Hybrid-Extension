@@ -86,3 +86,50 @@ rewrite history.
   `if __name__ == "__main__"` guard, so even a hypothetical future import
   of the module wouldn't trigger a download at import time. No code
   changes made — audit only, nothing to fix.
+
+## 2026-08-11 — Python 3.11 migration; ML models (RF, XGBoost)
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope, Part 0 (environment)**: Was on Python 3.7.4 (legacy-compatible
+  pins, scikit-learn stuck at 0.21.3, xgboost not installed). A newer
+  Python was available with zero setup friction (the `quant` conda env
+  already had 3.11.14), so per instructions that beat pinning to legacy
+  versions. Created a fresh, dedicated `.venv/` off that interpreter,
+  reinstalled everything at current versions, and explicitly confirmed
+  xgboost 3.2.0 actually works (a real `XGBRegressor.fit()`/`.predict()`
+  call, not just an import). `requirements.txt` repinned exactly.
+  Regression check: re-ran `evaluation.py` end-to-end in the new venv
+  (without touching `data_pipeline.py`) and compared
+  `results/tables/econometric_comparison.csv` before/after at full float
+  precision -- EWMA differs at ~1e-16 (float rounding, deterministic code),
+  GARCH/GJR-GARCH differ at ~1e-8 relative (optimizer landing at a
+  very slightly different point under newer scipy/numpy) -- both far
+  below the table's reported 5-decimal precision, not a regression.
+- **Scope, Part 1**: Added `RQ1_ML_FEATURES` to `features.py` -- lagged/
+  absolute/squared returns (lags 1-5) + 5/10/20-day historical vol, named
+  and explicit so it can be imported rather than re-derived. Verified by
+  hand: 18 columns, `lag_return_1[i] == log_return[i-1]` for every row,
+  and confirmed no GARCH/EWMA-named column exists anywhere in the
+  underlying dataframe (not just "unused" -- structurally absent).
+- **Scope, Part 2**: `src/models/ml_models.py` -- `RandomForestModel` and
+  `XGBoostModel`, both `fit(history)`/`predict()`, both with explicit
+  hyperparameters (n_estimators, max_depth, etc. -- not library defaults,
+  directly motivated by the sklearn default-drift found in Part 0) and a
+  fixed `random_state=42`.
+- **Scope, Part 3**: Ran both through the existing weekly-refit
+  walk-forward harness (879 rows each, no NaN forecasts, no non-positive
+  forecasts). First run produced a working `RandomForestRegressor`, `n_jobs=-1`
+  triggered a benign sklearn/joblib `UserWarning` ~29,000 times (58,000
+  log lines) -- not a correctness bug, but not left alone either: switched
+  both models to `n_jobs=1` (removes the warning, removes repeated
+  process-pool spin-up overhead, and incidentally makes XGBoost's output
+  exactly reproducible -- its `n_jobs=-1` run had differed from the
+  `n_jobs=1` rerun by up to ~1.4% relative on RMSE, a real
+  multithreading-order effect, not noise). Comparison table renamed
+  `econometric_comparison.csv` -> `results/tables/model_comparison.csv`
+  (old file removed, git history keeps it) and extended to all 5 models.
+  See chat for the full ranking discussion.
+- **Not done here**: significance testing (Diebold-Mariano, still queued
+  per `docs/risks_and_roadmap.md` until the hybrid model exists too) and
+  the regime-split overfitting check that risk doc also flags as worth
+  watching for RF/XGBoost -- neither was in scope for this session.

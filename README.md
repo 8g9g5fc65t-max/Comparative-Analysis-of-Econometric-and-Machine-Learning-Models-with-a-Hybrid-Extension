@@ -11,11 +11,11 @@ methodology decisions, model list, tutor guidance).
 
 ## Status
 
-- [x] Data pipeline (this stage)
-- [ ] Walk-forward engine
-- [ ] Econometric models (EWMA, GARCH(1,1), GJR-GARCH)
-- [ ] ML models (Random Forest, XGBoost)
-- [ ] Evaluation (MAE / RMSE / QLIKE)
+- [x] Data pipeline
+- [x] Walk-forward engine
+- [x] Econometric models (EWMA, GARCH(1,1), GJR-GARCH)
+- [x] ML models (Random Forest, XGBoost)
+- [x] Evaluation (MAE / RMSE / QLIKE) — see `results/tables/model_comparison.csv`
 - [ ] VaR / Expected Shortfall + backtesting (Kupiec, Christoffersen)
 - [ ] Hybrid model (GARCH + ML-on-residual)
 

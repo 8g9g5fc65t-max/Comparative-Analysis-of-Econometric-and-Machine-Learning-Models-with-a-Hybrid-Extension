@@ -1,11 +1,14 @@
-"""Volatility target, trailing historical-vol features, and train/test split.
+"""Volatility target, RQ1 ML feature set, and train/test split.
 
 Reads data/processed/gspc_processed.csv (from data_pipeline.py) and builds:
   - target_rv_5d: 5-day-forward realised volatility (the forecasting target)
-  - hist_vol_5d / 10d / 20d: trailing historical volatility (ML features,
-    per CLAUDE.md's RQ1 feature set)
-Both use the same annualised realised-vol formula, sqrt((252/n) * sum r^2),
-just applied looking forward (target) vs. backward (features).
+  - RQ1_ML_FEATURES: lagged/absolute/squared returns + 5/10/20-day trailing
+    historical vol -- CLAUDE.md's RQ1 feature set (pure ML vs. econometric
+    horse race). Deliberately excludes any GARCH/EWMA-derived input: mixing
+    those in would make the RQ1 comparison circular. GARCH-informed
+    features belong only to the hybrid model (RQ2), built separately.
+The target and hist_vol_* share one annualised realised-vol formula,
+sqrt((252/n) * sum r^2), just applied looking forward vs. backward.
 """
 import sys
 from dataclasses import dataclass
@@ -21,7 +24,20 @@ FEATURES_PATH = REPO_ROOT / "data" / "processed" / "gspc_features.csv"
 TARGET_WINDOW = 5
 TARGET_COL = "target_rv_5d"
 HIST_VOL_WINDOWS = (5, 10, 20)
+LAG_ORDERS = (1, 2, 3, 4, 5)  # matches the target's 5-day horizon
 TRADING_DAYS_PER_YEAR = 252
+
+# RQ1 ML feature set (CLAUDE.md, "kept separate to avoid circularity"):
+# lagged/absolute/squared returns + 5/10/20-day historical vol ONLY. No
+# GARCH/EWMA inputs here -- those are hybrid-model-only. Named and explicit
+# so downstream code (ml_models.py, hybrid.py) imports this list instead of
+# re-deriving or blurring the RQ1-vs-hybrid feature split.
+RQ1_ML_FEATURES = (
+    [f"lag_return_{k}" for k in LAG_ORDERS]
+    + [f"lag_abs_return_{k}" for k in LAG_ORDERS]
+    + [f"lag_sq_return_{k}" for k in LAG_ORDERS]
+    + [f"hist_vol_{w}d" for w in HIST_VOL_WINDOWS]
+)
 
 # Train/test cutoff (locked in per CLAUDE.md): train = Date <= SPLIT_DATE,
 # test = Date > SPLIT_DATE. Single source of truth -- walkforward.py and any
@@ -54,6 +70,13 @@ def build_features(df):
     # Trailing historical vol (uses r_{t-window+1}..r_t only -- no leakage).
     for w in HIST_VOL_WINDOWS:
         df[f"hist_vol_{w}d"] = _annualized_rv(r2, w)
+
+    # Lagged/absolute/squared returns (RQ1 ML feature set). shift(k), k>=1,
+    # uses only r_{t-k} -- strictly past information, no leakage.
+    for k in LAG_ORDERS:
+        df[f"lag_return_{k}"] = df["log_return"].shift(k)
+        df[f"lag_abs_return_{k}"] = df["log_return"].abs().shift(k)
+        df[f"lag_sq_return_{k}"] = r2.shift(k)
 
     return df
 

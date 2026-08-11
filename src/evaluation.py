@@ -15,9 +15,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from features import build_features, load_processed
 from walkforward import run_walkforward
 from models.econometric import EWMAModel, GARCHModel, GJRGARCHModel
+from models.ml_models import RandomForestModel, XGBoostModel
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-COMPARISON_TABLE_PATH = REPO_ROOT / "results" / "tables" / "econometric_comparison.csv"
+# Renamed from econometric_comparison.csv now that ML models (and eventually
+# the hybrid model) share this table -- one evolving comparison, not one
+# file per model family.
+COMPARISON_TABLE_PATH = REPO_ROOT / "results" / "tables" / "model_comparison.csv"
 
 
 def align(result_df):
@@ -71,14 +75,21 @@ def compare_models(results):
 def main():
     df = build_features(load_processed())
 
-    # Econometric models refit daily (cheap) per CLAUDE.md's refit-cadence note.
-    models = {
+    # Refit cadence per CLAUDE.md: econometric models refit daily (cheap);
+    # ML models refit weekly.
+    econometric_models = {
         "EWMA": EWMAModel(),
         "GARCH(1,1)": GARCHModel(),
         "GJR-GARCH": GJRGARCHModel(),
     }
+    ml_models = {
+        "RandomForest": RandomForestModel(),
+        "XGBoost": XGBoostModel(),
+    }
     results = {name: run_walkforward(df, model, refit_frequency="daily")
-               for name, model in models.items()}
+               for name, model in econometric_models.items()}
+    results.update({name: run_walkforward(df, model, refit_frequency="weekly")
+                     for name, model in ml_models.items()})
 
     table = compare_models(results)
     print(table.to_string(float_format=lambda x: f"{x:.5f}"))

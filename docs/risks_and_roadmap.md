@@ -63,12 +63,17 @@ session.
 characterization of genuine uncertainty, not a weakness — just don't let a
 future edit accidentally upgrade it to a confident claim we can't support.
 
-**[watch] Feature-set separation (RQ1 vs. hybrid) needs re-verification
-once ML models are actually built.** `CLAUDE.md` specifies pure ML features
-for RQ1 (no GARCH/EWMA inputs) and GARCH-informed features only for the
-hybrid model. Easy to get right in a spec, easy to blur in practice once
-both feature sets exist side by side in the same codebase — double check
-at implementation time, not just at design time.
+**[watch] Feature-set separation (RQ1 vs. hybrid) — re-verify again once
+the hybrid model is built.** `CLAUDE.md` specifies pure ML features for RQ1
+(no GARCH/EWMA inputs) and GARCH-informed features only for the hybrid
+model. Checked at RF/XGBoost implementation time: `RQ1_ML_FEATURES` in
+`features.py` is a named, explicit constant (lagged/absolute/squared
+returns + 5/10/20-day historical vol only), `ml_models.py` imports it
+rather than re-listing columns, and the underlying dataframe never even
+contains a GARCH/EWMA-named column to leak in accidentally. Still worth a
+second look once `hybrid.py` exists and GARCH-derived features enter the
+codebase for real — that's when the two sets will actually sit side by
+side.
 
 **[watch] Timeline — hybrid model is last for a reason.** If the ML stage
 runs long (tuning rabbit hole, debugging `arch`-style scale issues in a new

@@ -121,9 +121,10 @@ honest log of what Claude Code was used for in `docs/ai_usage_log.md` as we
 go, rather than reconstructing it at the end.
 
 ## Current status
-Data pipeline, walk-forward engine, and econometric models (EWMA, GARCH,
-GJR-GARCH) are built and evaluated. See README.md for how to run the
-pipeline.
+Data pipeline, walk-forward engine, econometric models (EWMA, GARCH,
+GJR-GARCH), and ML models (Random Forest, XGBoost) are built and evaluated
+together in `results/tables/model_comparison.csv`. Dev environment moved to
+Python 3.11 (see `requirements.txt`). See README.md for how to run things.
 
 ## Related docs
 `docs/risks_and_roadmap.md` tracks known risks/watch-items and a prioritized
