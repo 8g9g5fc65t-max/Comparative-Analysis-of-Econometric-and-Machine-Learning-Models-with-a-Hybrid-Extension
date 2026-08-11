@@ -133,3 +133,35 @@ rewrite history.
   per `docs/risks_and_roadmap.md` until the hybrid model exists too) and
   the regime-split overfitting check that risk doc also flags as worth
   watching for RF/XGBoost -- neither was in scope for this session.
+
+## 2026-08-11 — Correction: RQ1 feature set was over-scoped (18 cols, not 6)
+
+- **Tool**: Claude Code (Anthropic).
+- **What went wrong**: the RQ1 feature set built in the entry above
+  (`RQ1_ML_FEATURES`) used lags 1-5 of each of lagged/absolute/squared
+  returns -- 15 lag columns, 18 total with the three `hist_vol_*`. CLAUDE.md's
+  prose ("lagged/absolute/squared returns ... **only**") reads as ambiguous
+  between "one lag each" and "several lags each," and the assistant picked
+  the wrong reading without checking it against the finalised thesis
+  methodology text, which specifies exactly six features (one lagged
+  return, one absolute return, one squared return, plus the three
+  historical-vol windows). The user caught the mismatch, not the assistant.
+- **Fix**: `RQ1_ML_FEATURES` in `features.py` now has exactly those six
+  columns; the unused multi-lag columns (lag 2-5 of each type) were removed
+  from `build_features()` entirely, not just excluded from the list.
+  Verified: 6 columns, `lag_return_1[i] == log_return[i-1]` still holds,
+  no stale multi-lag columns remain in the dataframe.
+- **Re-run**: RandomForest and XGBoost re-run through the same weekly-refit
+  harness with the corrected feature set (see chat for exact hyperparameters,
+  unchanged from the entry above -- only the feature set changed). Both
+  sanity-checked again (no NaN/non-positive forecasts). `results/tables/
+  model_comparison.csv` regenerated; econometric rows unchanged (they don't
+  touch `RQ1_ML_FEATURES`), RF/XGBoost numbers changed, and the ranking
+  changed too -- GJR-GARCH reclaims the RMSE lead from XGBoost, and
+  RandomForest drops below GJR-GARCH on MAE and below GARCH(1,1) on QLIKE
+  (it had beaten both under the over-scoped feature set). Full numbers and
+  discussion in chat, not restated here.
+- **Why this is worth having on record**: the over-scoped run's numbers were
+  reported to the user as a real result in the previous session before the
+  mismatch was caught -- worth being explicit about for the thesis's
+  AI-use integrity disclosure, not just quietly fixing it and moving on.

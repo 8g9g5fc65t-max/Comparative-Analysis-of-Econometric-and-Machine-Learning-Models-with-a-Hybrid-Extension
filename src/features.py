@@ -2,9 +2,12 @@
 
 Reads data/processed/gspc_processed.csv (from data_pipeline.py) and builds:
   - target_rv_5d: 5-day-forward realised volatility (the forecasting target)
-  - RQ1_ML_FEATURES: lagged/absolute/squared returns + 5/10/20-day trailing
-    historical vol -- CLAUDE.md's RQ1 feature set (pure ML vs. econometric
-    horse race). Deliberately excludes any GARCH/EWMA-derived input: mixing
+  - RQ1_ML_FEATURES: exactly six columns -- one lagged return (r_{t-1}),
+    one lagged absolute return (|r_{t-1}|), one lagged squared return
+    (r_{t-1}^2), and 5/10/20-day trailing historical vol. This is
+    CLAUDE.md's RQ1 feature set (pure ML vs. econometric horse race) and
+    matches the finalised thesis methodology text exactly -- no multi-lag
+    expansion. Deliberately excludes any GARCH/EWMA-derived input: mixing
     those in would make the RQ1 comparison circular. GARCH-informed
     features belong only to the hybrid model (RQ2), built separately.
 The target and hist_vol_* share one annualised realised-vol formula,
@@ -24,20 +27,20 @@ FEATURES_PATH = REPO_ROOT / "data" / "processed" / "gspc_features.csv"
 TARGET_WINDOW = 5
 TARGET_COL = "target_rv_5d"
 HIST_VOL_WINDOWS = (5, 10, 20)
-LAG_ORDERS = (1, 2, 3, 4, 5)  # matches the target's 5-day horizon
 TRADING_DAYS_PER_YEAR = 252
 
-# RQ1 ML feature set (CLAUDE.md, "kept separate to avoid circularity"):
-# lagged/absolute/squared returns + 5/10/20-day historical vol ONLY. No
+# RQ1 ML feature set (CLAUDE.md, "kept separate to avoid circularity", and
+# matching the finalised thesis methodology text exactly): one lagged
+# return, one lagged absolute return, one lagged squared return, plus
+# 5/10/20-day historical vol -- SIX columns, no multi-lag expansion. No
 # GARCH/EWMA inputs here -- those are hybrid-model-only. Named and explicit
 # so downstream code (ml_models.py, hybrid.py) imports this list instead of
 # re-deriving or blurring the RQ1-vs-hybrid feature split.
-RQ1_ML_FEATURES = (
-    [f"lag_return_{k}" for k in LAG_ORDERS]
-    + [f"lag_abs_return_{k}" for k in LAG_ORDERS]
-    + [f"lag_sq_return_{k}" for k in LAG_ORDERS]
-    + [f"hist_vol_{w}d" for w in HIST_VOL_WINDOWS]
-)
+RQ1_ML_FEATURES = [
+    "lag_return_1",
+    "lag_abs_return_1",
+    "lag_sq_return_1",
+] + [f"hist_vol_{w}d" for w in HIST_VOL_WINDOWS]
 
 # Train/test cutoff (locked in per CLAUDE.md): train = Date <= SPLIT_DATE,
 # test = Date > SPLIT_DATE. Single source of truth -- walkforward.py and any
@@ -71,12 +74,11 @@ def build_features(df):
     for w in HIST_VOL_WINDOWS:
         df[f"hist_vol_{w}d"] = _annualized_rv(r2, w)
 
-    # Lagged/absolute/squared returns (RQ1 ML feature set). shift(k), k>=1,
-    # uses only r_{t-k} -- strictly past information, no leakage.
-    for k in LAG_ORDERS:
-        df[f"lag_return_{k}"] = df["log_return"].shift(k)
-        df[f"lag_abs_return_{k}"] = df["log_return"].abs().shift(k)
-        df[f"lag_sq_return_{k}"] = r2.shift(k)
+    # Lagged/absolute/squared return, lag 1 only (RQ1 ML feature set).
+    # shift(1) uses only r_{t-1} -- strictly past information, no leakage.
+    df["lag_return_1"] = df["log_return"].shift(1)
+    df["lag_abs_return_1"] = df["log_return"].abs().shift(1)
+    df["lag_sq_return_1"] = r2.shift(1)
 
     return df
 
