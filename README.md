@@ -21,13 +21,18 @@ methodology decisions, model list, tutor guidance).
 
 ## Setup
 
+Requires Python 3.9+ (developed/pinned against 3.11.14). Use a dedicated
+virtual environment rather than installing into a shared/base Python:
+
 ```bash
+python -m venv .venv
+.venv/Scripts/activate   # Windows; source .venv/bin/activate on macOS/Linux
 pip install -r requirements.txt
 ```
 
-Developed and tested on Python 3.7.4 — see the comments in
-[requirements.txt](requirements.txt) for the version pins that compatibility
-requires (mainly `yfinance`).
+Earlier sessions ran this project on Python 3.7.4 with legacy-compatible
+pins (old `yfinance`, capped `multitasking`) — that workaround is gone as
+of the 3.11 move; `requirements.txt` now pins current library versions.
 
 ## Data pipeline
 
