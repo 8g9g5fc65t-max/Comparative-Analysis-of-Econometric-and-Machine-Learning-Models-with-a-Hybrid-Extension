@@ -23,6 +23,7 @@ from risk import compute_risk_measures, CONFIDENCE_LEVELS
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FORECASTS_TABLE_PATH = REPO_ROOT / "results" / "tables" / "forecasts_all_models.csv"
 BACKTEST_SUMMARY_PATH = REPO_ROOT / "results" / "tables" / "backtest_summary.csv"
+ROBUSTNESS_CHECK_PATH = REPO_ROOT / "results" / "tables" / "christoffersen_nonoverlap_check.csv"
 
 
 def _log_likelihood(prob, successes, total):
@@ -136,6 +137,39 @@ def run_backtests(forecasts, features_df, confidence_levels=CONFIDENCE_LEVELS):
     return pd.DataFrame(rows)
 
 
+def christoffersen_non_overlapping_check(forecasts, features_df, confidence=0.95, stride=5):
+    """Robustness check on the full-sample Christoffersen independence
+    result. target_ret_5d at consecutive test dates shares 4 of its 5
+    underlying daily returns (confirmed directly: r[i+1..i+5] vs.
+    r[i+2..i+6]) -- that overlap mechanically induces serial correlation in
+    the violation indicator regardless of whether the volatility process
+    itself clusters. Subsampling every `stride` dates (default 5, matching
+    the horizon) removes the overlap entirely: consecutive checks in the
+    subsample come from target_ret_5d windows that share zero underlying
+    returns, isolating genuine clustering from the mechanical artifact.
+
+    Reuses christoffersen_independence_test() and compute_risk_measures()
+    unmodified -- doesn't touch kupiec_test, es_backtest, or risk.py.
+    """
+    model_names = [c for c in forecasts.columns if c not in ("Date", "actual")]
+    merged = forecasts.merge(features_df[["Date", TARGET_RET_COL]], on="Date")
+    merged = merged.dropna(subset=[TARGET_RET_COL]).reset_index(drop=True)
+    subsample = merged.iloc[::stride].reset_index(drop=True)
+    actual_ret = subsample[TARGET_RET_COL]
+    pct = round(confidence * 100)
+
+    rows = []
+    for name in model_names:
+        risk = compute_risk_measures(subsample[name], (confidence,))
+        violations = (actual_ret < -risk[f"VaR_{pct}"]).values
+        row = {"model": name, "confidence": confidence, "n": len(violations),
+               "n_violations": int(violations.sum()),
+               "violation_rate": float(violations.mean()) if len(violations) else float("nan")}
+        row.update(christoffersen_independence_test(violations))
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def main():
     forecasts = pd.read_csv(FORECASTS_TABLE_PATH, parse_dates=["Date"])
     features_df = build_features(load_processed())
@@ -146,6 +180,12 @@ def main():
     BACKTEST_SUMMARY_PATH.parent.mkdir(parents=True, exist_ok=True)
     summary.to_csv(BACKTEST_SUMMARY_PATH, index=False)
     print(f"\nSaved: {BACKTEST_SUMMARY_PATH}")
+
+    robustness = christoffersen_non_overlapping_check(forecasts, features_df)
+    print("\nNon-overlapping robustness check (every 5th test date, 95% confidence):")
+    print(robustness.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
+    robustness.to_csv(ROBUSTNESS_CHECK_PATH, index=False)
+    print(f"\nSaved: {ROBUSTNESS_CHECK_PATH}")
 
 
 if __name__ == "__main__":

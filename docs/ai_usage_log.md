@@ -210,3 +210,42 @@ rewrite history.
 - **Also updated**: `README.md`/`CLAUDE.md` status, confirmed no other
   file referenced a stale forecasts/backtest filename (none existed
   before this session, so nothing to find).
+
+## 2026-08-12 — Correction: full-sample Christoffersen "clustering" was mostly a mechanical artifact
+
+- **Tool**: Claude Code (Anthropic).
+- **What went wrong**: the entry above reported all five models failing
+  Christoffersen independence at 95% (p≈0.0000) and framed it as a
+  genuine finding about violation clustering, without checking whether
+  the overlapping 5-day forecast horizon itself could produce that result
+  mechanically. The user asked for this check before it went further.
+- **What was checked**: confirmed directly (not just argued) that
+  `target_ret_5d` at consecutive test dates shares 4 of its 5 underlying
+  daily returns (r[i+1..i+5] vs. r[i+2..i+6]) -- exactly the kind of
+  overlap known to induce mechanical serial correlation in derived
+  indicator series, independent of any real clustering in the underlying
+  process.
+- **Robustness check added**: `christoffersen_non_overlapping_check()` in
+  `backtesting.py` -- reuses `christoffersen_independence_test()` and
+  `compute_risk_measures()` unmodified, subsamples every 5th test date
+  (stride = the horizon) so consecutive checks share zero underlying
+  returns. `kupiec_test()`, `es_backtest()`, and `risk.py` were not
+  touched; `results/tables/backtest_summary.csv` regenerated and
+  confirmed byte-identical to the pre-check version.
+- **Result**: independence p-values move from ≈0.0000 (full sample,
+  LR 60-125) to 0.32-0.51 (non-overlapping, n=175 per model) for all five
+  models, with **zero** consecutive violations (n11=0) in every model's
+  subsample. Saved to
+  `results/tables/christoffersen_nonoverlap_check.csv`.
+- **Interpretation, stated plainly**: the original full-sample
+  Christoffersen failure was mostly a structural artifact of the
+  overlapping forecast horizon, not a genuine per-model clustering
+  finding -- it doesn't distinguish between the five models, since the
+  mechanism producing it is identical across all of them. Kupiec and the
+  ES-ratio backtest are unaffected and still stand. `docs/risks_and_
+  roadmap.md`'s Gaussian-VaR entry corrected accordingly rather than left
+  as the (overstated) original claim.
+- **Why this is worth having on record**: same reason as the RQ1
+  feature-set correction above -- a real result was reported to the user
+  before a caught issue corrected it, and the thesis's AI-use disclosure
+  should reflect that rather than only show the final, clean version.

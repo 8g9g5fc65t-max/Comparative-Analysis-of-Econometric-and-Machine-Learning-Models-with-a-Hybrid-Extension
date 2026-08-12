@@ -32,13 +32,35 @@ under-cover during genuine crisis periods (e.g. anything COVID-like in the
 test window). This isn't a bug, it's a known limitation of the chosen
 method. Say so explicitly in the conclusions/limitations section rather
 than let an evaluator find it unstated — a named limitation reads as rigor,
-an unnamed one reads as an oversight. **Now backed by the actual
-backtest** (`results/tables/backtest_summary.csv`): all five models fail
-the Christoffersen independence test at 95% confidence (p ≈ 0.0000 —
-violations cluster in time rather than scattering), and the simple ES
-backtest shows realised shortfall exceeding forecasted ES by ~8-21% across
-models on violation days. Exactly the fat-tail under-coverage this item
-predicted, now with numbers, not just a prediction.
+an unnamed one reads as an oversight. The simple ES backtest
+(`results/tables/backtest_summary.csv`) shows realised shortfall exceeding
+forecasted ES by ~8-21% across models on violation days — that part of the
+under-coverage story holds and is unaffected by the item below.
+
+**Correction (2026-08-12) — the full-sample Christoffersen "clustering"
+result was mostly a mechanical artifact, not a genuine per-model finding.**
+The previous entry here reported all five models failing Christoffersen
+independence at 95% (p≈0.0000) and framed it as evidence of real
+violation clustering. That framing doesn't hold up: `target_ret_5d` at
+consecutive test dates shares 4 of its 5 underlying daily returns
+(confirmed directly: r[i+1..i+5] vs. r[i+2..i+6] overlap in 4 places) --
+with a horizon that overlapping, the violation indicator is mechanically
+serially correlated regardless of whether the underlying volatility
+process clusters at all. Re-running Christoffersen on a non-overlapping
+subsample (every 5th test date, so consecutive checks share zero
+underlying returns -- `results/tables/christoffersen_nonoverlap_check.csv`)
+flips the result completely: independence p-values move to 0.32-0.51 for
+every model, and every model has **zero** consecutive violations in the
+subsample (n11=0). The original full-sample LR statistics (60-125,
+against a chi2(1) critical value of ~3.84) were almost entirely the
+overlapping-horizon artifact, not a per-model signal.
+**Practical effect on the thesis**: don't present the original
+Christoffersen failure as a finding that discriminates between models --
+it doesn't (it's ~identical in cause across all five). If Christoffersen
+independence is reported at all, report both the full-sample number (with
+this caveat attached) and the non-overlapping robustness check, and lead
+with the latter as the more trustworthy read. The Kupiec results and the
+ES-ratio backtest are untouched by this and still stand as reported.
 
 **[watch] ML overfitting risk on a relatively short sample.** ~3,000
 training rows is workable but not large for tree-based models with many
