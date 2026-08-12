@@ -21,6 +21,9 @@ Diebold-Mariano test is the standard tool for this. Cheap to add, and it's
 exactly the kind of "diagnostics and robustness" the TFM guide's evaluation
 checklist asks for. See backlog — do this once all models (econometric + ML
 + hybrid) are in, so it's one pairwise comparison pass instead of three.
+Per-date forecasts for all five current models are now persisted in
+`results/tables/forecasts_all_models.csv`, so this is unblocked whenever
+it's picked up -- no need to re-run walk-forward to get there.
 
 **[watch] Gaussian VaR underestimates tail risk.** Parametric Gaussian VaR
 is the agreed baseline (fast, consistent across models, easy to defend) but
@@ -29,7 +32,13 @@ under-cover during genuine crisis periods (e.g. anything COVID-like in the
 test window). This isn't a bug, it's a known limitation of the chosen
 method. Say so explicitly in the conclusions/limitations section rather
 than let an evaluator find it unstated — a named limitation reads as rigor,
-an unnamed one reads as an oversight.
+an unnamed one reads as an oversight. **Now backed by the actual
+backtest** (`results/tables/backtest_summary.csv`): all five models fail
+the Christoffersen independence test at 95% confidence (p ≈ 0.0000 —
+violations cluster in time rather than scattering), and the simple ES
+backtest shows realised shortfall exceeding forecasted ES by ~8-21% across
+models on violation days. Exactly the fat-tail under-coverage this item
+predicted, now with numbers, not just a prediction.
 
 **[watch] ML overfitting risk on a relatively short sample.** ~3,000
 training rows is workable but not large for tree-based models with many

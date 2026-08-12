@@ -1,7 +1,13 @@
-"""Volatility target, RQ1 ML feature set, and train/test split.
+"""Volatility target, raw-return target, RQ1 ML feature set, train/test split.
 
 Reads data/processed/gspc_processed.csv (from data_pipeline.py) and builds:
-  - target_rv_5d: 5-day-forward realised volatility (the forecasting target)
+  - target_rv_5d: 5-day-forward realised volatility (the forecasting target
+    for RQ1's vol comparison; MAE/RMSE/QLIKE are computed against this).
+  - target_ret_5d: signed cumulative log return over the next 5 trading
+    days (sum of r_{t+1}..r_{t+5}, NOT squared, NOT annualised). A
+    separate column, computed directly from log_return -- NOT derived from
+    target_rv_5d, which discards the sign. Needed to check whether a
+    realised loss actually breached a VaR forecast (risk.py/backtesting.py).
   - RQ1_ML_FEATURES: exactly six columns -- one lagged return (r_{t-1}),
     one lagged absolute return (|r_{t-1}|), one lagged squared return
     (r_{t-1}^2), and 5/10/20-day trailing historical vol. This is
@@ -10,7 +16,7 @@ Reads data/processed/gspc_processed.csv (from data_pipeline.py) and builds:
     expansion. Deliberately excludes any GARCH/EWMA-derived input: mixing
     those in would make the RQ1 comparison circular. GARCH-informed
     features belong only to the hybrid model (RQ2), built separately.
-The target and hist_vol_* share one annualised realised-vol formula,
+target_rv_5d and hist_vol_* share one annualised realised-vol formula,
 sqrt((252/n) * sum r^2), just applied looking forward vs. backward.
 """
 import sys
@@ -26,6 +32,7 @@ FEATURES_PATH = REPO_ROOT / "data" / "processed" / "gspc_features.csv"
 
 TARGET_WINDOW = 5
 TARGET_COL = "target_rv_5d"
+TARGET_RET_COL = "target_ret_5d"
 HIST_VOL_WINDOWS = (5, 10, 20)
 TRADING_DAYS_PER_YEAR = 252
 
@@ -69,6 +76,14 @@ def build_features(df):
     # in the sample (walk-forward/evaluation code must drop or ignore them).
     fwd_sum_r2 = r2.rolling(TARGET_WINDOW).sum().shift(-TARGET_WINDOW)
     df[TARGET_COL] = np.sqrt((TRADING_DAYS_PER_YEAR / TARGET_WINDOW) * fwd_sum_r2)
+
+    # Raw forward-return target: signed sum of r_{t+1}..r_{t+5}, same
+    # rolling-then-shift trick as above but on log_return directly -- no
+    # squaring, no annualising. Independent of target_rv_5d (that column
+    # discards the sign; this one is exactly what a VaR breach check needs).
+    # Same tail edge case: the last TARGET_WINDOW rows have no future
+    # returns yet, so they come out NaN here too.
+    df[TARGET_RET_COL] = df["log_return"].rolling(TARGET_WINDOW).sum().shift(-TARGET_WINDOW)
 
     # Trailing historical vol (uses r_{t-window+1}..r_t only -- no leakage).
     for w in HIST_VOL_WINDOWS:

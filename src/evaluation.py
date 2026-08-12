@@ -22,6 +22,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # the hybrid model) share this table -- one evolving comparison, not one
 # file per model family.
 COMPARISON_TABLE_PATH = REPO_ROOT / "results" / "tables" / "model_comparison.csv"
+# Per-date (Date, actual, <model forecasts...>) for every model, from the
+# same walk-forward run that builds the table above -- so a later
+# Diebold-Mariano test (or anything else needing raw forecasts) doesn't
+# have to re-run the slow walk-forward loops a second time.
+FORECASTS_TABLE_PATH = REPO_ROOT / "results" / "tables" / "forecasts_all_models.csv"
 
 
 def align(result_df):
@@ -72,6 +77,25 @@ def compare_models(results):
     return table[["MAE", "RMSE", "QLIKE", "n_obs"]]
 
 
+def combine_forecasts(results):
+    """results: {model_name: walk-forward output DataFrame (Date, forecast,
+    actual)}. Returns one wide DataFrame -- Date, actual, <model_1>,
+    <model_2>, ... -- one row per test date. Every model runs the same
+    split against the same target_rv_5d, so their (Date, actual) pairs must
+    be identical; asserted here so a future alignment bug fails loudly
+    instead of silently merging mismatched rows."""
+    names = list(results.keys())
+    base = results[names[0]][["Date", "actual"]].reset_index(drop=True)
+    combined = base.copy()
+    for name in names:
+        aligned = results[name][["Date", "actual"]].reset_index(drop=True)
+        if not aligned.equals(base):
+            raise ValueError(f"{name}'s (Date, actual) don't match the other "
+                              f"models' -- walk-forward alignment bug")
+        combined[name] = results[name]["forecast"].reset_index(drop=True).values
+    return combined
+
+
 def main():
     df = build_features(load_processed())
 
@@ -97,6 +121,11 @@ def main():
     COMPARISON_TABLE_PATH.parent.mkdir(parents=True, exist_ok=True)
     table.to_csv(COMPARISON_TABLE_PATH)
     print(f"\nSaved: {COMPARISON_TABLE_PATH}")
+
+    forecasts = combine_forecasts(results)
+    forecasts.to_csv(FORECASTS_TABLE_PATH, index=False)
+    print(f"Saved: {FORECASTS_TABLE_PATH} ({len(forecasts)} rows, "
+          f"{len(results)} model columns)")
 
 
 if __name__ == "__main__":

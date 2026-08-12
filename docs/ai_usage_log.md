@@ -165,3 +165,48 @@ rewrite history.
   reported to the user as a real result in the previous session before the
   mismatch was caught -- worth being explicit about for the thesis's
   AI-use integrity disclosure, not just quietly fixing it and moving on.
+
+## 2026-08-12 — VaR/ES, backtesting (Kupiec, Christoffersen, simple ES)
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope, Part 0**: Confirmed (grep + directory listing) that only
+  aggregated MAE/RMSE/QLIKE were persisted, never per-date forecasts.
+  `evaluation.py` gained `combine_forecasts()`, reusing the single
+  walk-forward run already needed for the comparison table (no second,
+  slower run) to save `results/tables/forecasts_all_models.csv` -- 879
+  rows, one actual + 5 model-forecast columns, with a hard assertion that
+  every model shares the same (Date, actual) pairs before merging.
+- **Scope, Part 1**: `features.py` gets `target_ret_5d` -- signed sum of
+  r_{t+1}..r_{t+5}, computed directly from `log_return` (not derived from
+  `target_rv_5d`, which discards the sign). Verified against a hand
+  calculation, confirmed genuinely distinct from `target_rv_5d`
+  (correlation -0.26, not 1), same 5-row NaN tail as the vol target.
+- **Scope, Part 2**: `src/risk.py` -- `deannualize_5day_vol()` (inverts
+  `features.py`'s sqrt(252/5) factor), then closed-form Gaussian
+  VaR/ES at 95%/99%, one function path for all five models (no
+  per-model branching). Verified by hand for one value, and checked
+  ES_95 > VaR_95, VaR_99 > VaR_95, ES_99 > ES_95, all positive, across
+  every model's full forecast series -- all held.
+- **Scope, Part 3+4**: `src/backtesting.py` -- Kupiec unconditional
+  coverage, Christoffersen independence + conditional coverage (LR_cc =
+  LR_uc + LR_ind), and the simple CLAUDE.md-specified ES backtest (mean
+  realised shortfall vs. mean forecast ES on violation days only).
+  Stress-tested the likelihood-ratio edge cases directly (zero
+  violations, all violations, near-perfect large-sample calibration)
+  before trusting it on real data -- no NaN/crash, and the near-perfect
+  case correctly failed to reject the null (p≈0.29).
+- **Scope, Part 5**: One combined table, `results/tables/
+  backtest_summary.csv`, 10 rows (5 models x 2 confidence levels):
+  violation rate, Kupiec LR/p-value, Christoffersen independence
+  LR/p-value, conditional-coverage LR/p-value, and the ES-ratio backtest.
+  Real finding, not assumed: every model passes Kupiec at 95% (right
+  overall rate) but fails Christoffersen independence at 95%
+  (p≈0.0000 for all five -- violations cluster in time), and realised
+  shortfall exceeds forecast ES by ~8-21% on violation days across
+  models. This is exactly the fat-tail under-coverage
+  `docs/risks_and_roadmap.md`'s Gaussian-VaR watch-item predicted --
+  updated that entry with the actual numbers rather than leaving it as
+  a prediction.
+- **Also updated**: `README.md`/`CLAUDE.md` status, confirmed no other
+  file referenced a stale forecasts/backtest filename (none existed
+  before this session, so nothing to find).

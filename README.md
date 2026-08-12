@@ -16,7 +16,7 @@ methodology decisions, model list, tutor guidance).
 - [x] Econometric models (EWMA, GARCH(1,1), GJR-GARCH)
 - [x] ML models (Random Forest, XGBoost)
 - [x] Evaluation (MAE / RMSE / QLIKE) — see `results/tables/model_comparison.csv`
-- [ ] VaR / Expected Shortfall + backtesting (Kupiec, Christoffersen)
+- [x] VaR / Expected Shortfall + backtesting (Kupiec, Christoffersen) — see `results/tables/backtest_summary.csv`
 - [ ] Hybrid model (GARCH + ML-on-residual)
 
 ## Setup

@@ -123,8 +123,13 @@ go, rather than reconstructing it at the end.
 ## Current status
 Data pipeline, walk-forward engine, econometric models (EWMA, GARCH,
 GJR-GARCH), and ML models (Random Forest, XGBoost) are built and evaluated
-together in `results/tables/model_comparison.csv`. Dev environment moved to
-Python 3.11 (see `requirements.txt`). See README.md for how to run things.
+together in `results/tables/model_comparison.csv`. Per-date forecasts for
+all five models are persisted in `results/tables/forecasts_all_models.csv`
+(for the Diebold-Mariano test later, without re-running walk-forward).
+Gaussian VaR/ES (`src/risk.py`) and Kupiec/Christoffersen/simple-ES
+backtesting (`src/backtesting.py`) are built and run in
+`results/tables/backtest_summary.csv`. Dev environment moved to Python 3.11
+(see `requirements.txt`). See README.md for how to run things.
 
 ## Related docs
 `docs/risks_and_roadmap.md` tracks known risks/watch-items and a prioritized
