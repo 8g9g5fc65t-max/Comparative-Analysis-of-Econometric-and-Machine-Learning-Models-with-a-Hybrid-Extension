@@ -249,3 +249,31 @@ rewrite history.
   feature-set correction above -- a real result was reported to the user
   before a caught issue corrected it, and the thesis's AI-use disclosure
   should reflect that rather than only show the final, clean version.
+
+## 2026-08-12 — Descriptive stats table + two thesis figures
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope, Part 1**: `src/descriptive_stats.py` -- mean/std (daily and
+  annualised), skewness, excess kurtosis, min, max, and a Jarque-Bera
+  normality test on `log_return` (full cleaned sample, n=3898, the one
+  NaN first-row dropped). Saved to `results/tables/
+  returns_descriptive_stats.csv`; prints a booktabs LaTeX table (caption
+  below the tabular). Caught and fixed two LaTeX-correctness issues before
+  handing the table over: the Jarque-Bera p-value underflows to a literal
+  `0.0` in float64 (statistic is ~33,604, astronomically significant) --
+  displayed as "< 0.0001" instead of a misleading bare zero -- and the
+  original caption had a raw `^GSPC`, which breaks LaTeX outside math mode
+  (`^` needs escaping) -- fixed to `\texttt{\textasciicircum GSPC}`.
+- **Scope, Part 2**: `src/figures.py`, `matplotlib` added to the venv and
+  pinned in `requirements.txt` (wasn't installed before this session).
+  Both figures saved as vector PDF, 13cm x 7cm (confirmed by reading each
+  PDF's `/MediaBox` directly, not assumed from the `figsize` argument):
+  `results/figures/returns_timeseries.pdf` (full sample, 2020-03-16
+  COVID crash annotated) and `results/figures/forecast_vs_actual_test.pdf`
+  (test period only, actual vs. GJR-GARCH vs. XGBoost). Rendered PNG
+  previews of both (temp files, not committed) before accepting the PDFs
+  -- the first pass had the crash annotation overlapping the x-axis tick
+  labels, and Figure 2's date ticks were so dense the labels ran into each
+  other illegibly. Fixed with an explicit date locator/formatter and
+  repositioned annotation, re-rendered, re-checked visually before
+  finalising.
