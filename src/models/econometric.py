@@ -1,12 +1,18 @@
 """Econometric volatility models: EWMA, GARCH(1,1), GJR-GARCH.
 
 All three conform to the walk-forward interface (see src/walkforward.py):
-    fit(history: pd.DataFrame) -> None   # history has a 'log_return' column
-    predict() -> float                    # 5-day-ahead annualised vol forecast
+    fit(history: pd.DataFrame) -> None      # re-estimate parameters
+    predict(history: pd.DataFrame) -> float # 5-day annualised vol for history's LAST date
 
 All three go through the same annualize_5day_vol() helper so their forecasts
 land on exactly the scale as features.TARGET_COL (target_rv_5d) -- required
 for a fair comparison later.
+
+None of these models reads a label column, so the harness's label masking is a
+no-op for them; they were never exposed to the leakage it prevents. They take
+`history` in predict() anyway, because a single uniform contract across every
+model family is what stops the two concerns (parameter cadence vs. forecast
+freshness) from being conflated again -- see walkforward.py's module docstring.
 """
 import warnings
 
@@ -37,21 +43,27 @@ class EWMAModel:
     """RiskMetrics-style EWMA: sigma2_t = lam*sigma2_{t-1} + (1-lam)*r_{t-1}^2.
     No external library, no mean reversion -- the 5-day forecast is just the
     latest 1-step variance estimate repeated for all 5 days.
+
+    lam is a fixed convention (RiskMetrics 0.94), not an estimated parameter,
+    so fit() has nothing to do: the whole model is the recursion, and the
+    recursion is a filter over returns rather than a parameter estimate. Running
+    it inside predict() makes this model correct at ANY refit cadence -- its
+    forecast tracks returns through the current date whether or not fit() was
+    called today.
     """
 
     def __init__(self, lam=0.94):
         self.lam = lam
-        self._var = None
 
     def fit(self, history):
+        """No parameters to estimate -- lam is fixed by convention."""
+
+    def predict(self, history):
         r = history["log_return"].dropna().values
         var = r[0] ** 2  # seed value; decays away after ~a few hundred obs
         for x in r[1:]:
             var = self.lam * var + (1 - self.lam) * x ** 2
-        self._var = var
-
-    def predict(self):
-        return annualize_5day_vol(self._var)
+        return annualize_5day_vol(var)
 
 
 class _ArchGarchModel:
@@ -63,6 +75,7 @@ class _ArchGarchModel:
         self.dist = dist
         self.n_convergence_warnings = 0
         self._result = None
+        self._fitted_through = None
 
     def fit(self, history):
         r = history["log_return"].dropna() * RETURN_SCALE
@@ -72,8 +85,24 @@ class _ArchGarchModel:
             self._result = am.fit(disp="off", show_warning=False)
         self.n_convergence_warnings += sum(
             1 for w in caught if issubclass(w.category, ConvergenceWarning))
+        self._fitted_through = history["Date"].iloc[-1]
 
-    def predict(self):
+    def predict(self, history):
+        # Unlike EWMA and the ML models, an arch forecast is produced from the
+        # fitted result object, whose conditional-variance filter is bound to
+        # the sample it was estimated on -- it cannot be rolled forward to a
+        # later date without refitting. So this model is only correct under a
+        # daily refit cadence, and says so loudly instead of quietly returning
+        # a forecast that ignores everything since the last fit. That silent
+        # staleness is exactly the bug the walkforward.py contract now exists
+        # to prevent (rule 1); this guard is how THIS model honours it.
+        t = history["Date"].iloc[-1]
+        if self._fitted_through != t:
+            raise RuntimeError(
+                f"{type(self).__name__} was fitted through {self._fitted_through} but "
+                f"asked to forecast for {t}. arch-backed models must be refit on every "
+                f"forecasting date (refit_frequency='daily'); a stale fit would silently "
+                f"ignore all returns since it was estimated.")
         fc = self._result.forecast(horizon=TARGET_WINDOW, reindex=False)
         variances_pct2 = fc.variance.values[-1]  # on the RETURN_SCALE^2 scale
         variances = variances_pct2 / (RETURN_SCALE ** 2)

@@ -36,6 +36,13 @@ TARGET_RET_COL = "target_ret_5d"
 HIST_VOL_WINDOWS = (5, 10, 20)
 TRADING_DAYS_PER_YEAR = 252
 
+# Every column here is FORWARD-looking: row t's value is built from returns
+# r_{t+1}..r_{t+TARGET_WINDOW}, so it is not knowable until TARGET_WINDOW
+# trading days after t. Anything added to build_features() that looks forward
+# belongs in this tuple -- mask_unknown_labels() (and therefore the whole
+# walk-forward harness) keys off it to decide what a model may see.
+FORWARD_LABEL_COLS = (TARGET_COL, TARGET_RET_COL)
+
 # RQ1 ML feature set (CLAUDE.md, "kept separate to avoid circularity", and
 # matching the finalised thesis methodology text exactly): one lagged
 # return, one lagged absolute return, one lagged squared return, plus
@@ -96,6 +103,32 @@ def build_features(df):
     df["lag_sq_return_1"] = r2.shift(1)
 
     return df
+
+
+def mask_unknown_labels(history, window=TARGET_WINDOW, label_cols=FORWARD_LABEL_COLS):
+    """Blank out the forward-looking labels that have not happened yet.
+
+    `history` is every row up to and including some forecasting date t. Row
+    t's label sums r_{t+1}..r_{t+window}, so the last `window` rows carry
+    labels that reach past t -- information nobody has at t. This sets those
+    (and only those) cells to NaN, leaving every feature column and
+    `log_return` untouched through t.
+
+    This is the same boundary rule TrainTestSplit.split() applies once at the
+    train/test cutoff, generalised to hold at *every* step of the walk-forward
+    loop (see walkforward.available_history). Masking rather than row-trimming
+    is deliberate: models that estimate from returns only (EWMA, GARCH,
+    GJR-GARCH) still see the full return series through t and are completely
+    unaffected, while any model that trains on a label column cannot reach a
+    future label even by accident -- including models not written yet.
+    """
+    masked = history.copy()
+    if not window:
+        return masked
+    for col in label_cols:
+        if col in masked.columns:
+            masked.iloc[-window:, masked.columns.get_loc(col)] = np.nan
+    return masked
 
 
 @dataclass

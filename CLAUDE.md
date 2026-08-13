@@ -46,6 +46,34 @@ Order: data pipeline → walk-forward engine → econometric models → ML model
 - **ML retrain cadence**: refit Random Forest / XGBoost **weekly**, not
   daily, on the expanding window. GARCH-family models can refit daily
   (cheap) — document this asymmetry explicitly in the methodology section.
+- **Refit cadence and prediction freshness are SEPARATE concerns — never
+  let one imply the other.** Refit cadence governs how often a model's
+  *parameters* are re-estimated. It must never govern how often a
+  *forecast* is produced. Every model forecasts on every test date, from
+  that date's own feature vector. A weekly-refit model still predicts
+  daily: same parameters all week, fresh inputs each day.
+  *Why this is spelled out:* the original wording ("refit weekly") was read
+  as "forecast weekly". `predict()` took no arguments and reused a feature
+  row cached during the last `fit()`, so Random Forest and XGBoost emitted
+  one frozen value per ISO week — 184 distinct forecasts across 879 test
+  dates instead of 879. It flattered both ML models and inverted the RQ1
+  ranking. Fixed 2026-08-13 by making `predict(history)` take the current
+  history explicitly, so there is no cached state to go stale.
+- **No training label may reach past the forecasting date.** At date t, a
+  label built from r_{t+1}..r_{t+5} is knowable only from t+5 onward, so the
+  last 5 rows of any expanding window must not be trained on. This is the
+  rule `TrainTestSplit.split()` applies at the train/test cutoff, and it has
+  to hold at *every* step of the walk-forward loop, not just that one
+  boundary. `walkforward.available_history()` enforces it by masking those
+  labels to NaN before any model sees the frame.
+  *Why this is spelled out:* it was violated until 2026-08-13 — the training
+  set at date t included row t itself, so the exact (X, y) pair being
+  predicted was a training example.
+- **The walk-forward interface is the enforcement point for both rules
+  above.** `fit(history)` / `predict(history)`, one contract for every model
+  family. Any new model (the hybrid included) inherits both guarantees by
+  construction. Do not add a model that caches inputs during `fit()`, and do
+  not reintroduce a no-argument `predict()`.
 - **VaR**: parametric Gaussian VaR (σ̂ · z_α) as the baseline for all models,
   same distributional assumption across models so risk-measure differences
   trace back to volatility-forecast differences, not methodology
@@ -128,8 +156,31 @@ all five models are persisted in `results/tables/forecasts_all_models.csv`
 (for the Diebold-Mariano test later, without re-running walk-forward).
 Gaussian VaR/ES (`src/risk.py`) and Kupiec/Christoffersen/simple-ES
 backtesting (`src/backtesting.py`) are built and run in
-`results/tables/backtest_summary.csv`. Dev environment moved to Python 3.11
-(see `requirements.txt`). See README.md for how to run things.
+`results/tables/backtest_summary.csv` plus
+`results/tables/christoffersen_nonoverlap_check.csv`. Descriptive stats
+(`src/descriptive_stats.py`) and thesis figures (`src/figures.py`) are built.
+Dev environment moved to Python 3.11 (see `requirements.txt`). See README.md
+for how to run things.
+
+**Thesis draft**: `thesis/Thesis.tex` (note: `Thesis.tex`, not `main.tex`) is
+drafted end to end — Introduction, Literature Review, Data, Methodology,
+Results, Conclusions — with the hybrid-model subsection written in future
+tense as a placeholder and no bibliography yet.
+
+**2026-08-13 — walk-forward correctness fix, and what it invalidated.** The
+two rules now in "Methodology decisions" (prediction freshness, no future
+labels) were both being violated. Fixing them changed every Random Forest and
+XGBoost number and **inverted the headline RQ1 result**: GJR-GARCH now wins on
+all three loss functions, XGBoost no longer has the best MAE (it is worst on
+RMSE), and "no single model dominates" is no longer true. Econometric results
+are bitwise unchanged. `results/tables/*` are regenerated and current; the
+Results and Conclusions sections of `thesis/Thesis.tex` still describe the old,
+wrong numbers and need rewriting against the committed tables.
+
+A full audit on 2026-08-13 also found ~30 further issues (missing
+`references.bib`, an undefined `\ref`, thesis/code mismatches, README gaps).
+Only the two correctness bugs and one figure-path typo were fixed; the rest
+is unactioned.
 
 ## Related docs
 `docs/risks_and_roadmap.md` tracks known risks/watch-items and a prioritized

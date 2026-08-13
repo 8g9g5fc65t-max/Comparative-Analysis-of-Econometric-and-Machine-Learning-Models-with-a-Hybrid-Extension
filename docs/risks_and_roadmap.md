@@ -14,6 +14,48 @@ Tags:
 
 ## Known risks & things to watch
 
+**RESOLVED (2026-08-13) — two walk-forward correctness bugs that inverted the
+RQ1 result.** Found by a full pre-hybrid audit; both are now fixed
+structurally in `walkforward.py`'s model interface, and both rules are written
+into `CLAUDE.md`'s locked-in methodology decisions.
+1. *Prediction freshness.* `predict()` took no arguments and re-used a feature
+   vector cached during the last `fit()`. Under the weekly ML refit cadence
+   that froze one forecast per ISO week: RF and XGBoost emitted **184 distinct
+   forecasts across 879 test dates**, 79% of values carried over, constant in
+   all 184 weeks (econometric models, refitting daily, were unaffected).
+2. *Label leakage.* At date t the training set included row t itself, whose
+   label is built from r_{t+1}..r_{t+5} — so the exact (X, y) pair being
+   predicted was a training example. `TrainTestSplit.split()` already trimmed
+   these 5 rows at the train/test cutoff, but `walkforward.py` rebuilt its own
+   untrimmed history and bypassed that guard.
+
+**Fix**: the contract is now `fit(history)` / `predict(history)` for every
+model, and `available_history()` masks not-yet-knowable labels before any model
+sees the frame. There is no cached state to go stale and no reachable future
+label, so neither bug can be reintroduced by `hybrid.py`. Arch-backed models
+raise rather than serve a stale forecast if asked to predict for a date they
+weren't fitted through. Verified after the fix: 879/879 distinct forecasts for
+all five models, and EWMA/GARCH/GJR-GARCH forecasts **bitwise identical** to
+pre-fix output (checked in memory against a pristine `git worktree` of HEAD —
+note the committed CSVs are written at 16 significant digits and do *not*
+round-trip float64 exactly, so a CSV diff is the wrong instrument for this).
+
+**Consequence, not yet actioned**: the corrected numbers **invert the thesis's
+central RQ1 finding**. GJR-GARCH now beats every model on MAE, RMSE and QLIKE;
+XGBoost falls to 3rd on MAE and *last* on RMSE; "no single model dominates
+across all three criteria" is false. XGBoost still fails Kupiec at 99% and
+fails harder (p 0.027 → 0.0059), but the Conclusions' central irony — that the
+best-MAE model has the worst tail coverage — no longer holds, because XGBoost
+no longer has the best MAE. Results, Conclusions and §5.2 of `thesis/Thesis.tex`
+describe the old numbers and must be rewritten against the regenerated tables.
+
+**[act now] `results/figures/forecast_error_test.pdf` is stale.** It still
+plots the pre-fix XGBoost forecasts. Regeneration is blocked only by a file
+lock (both figure PDFs were open in a viewer); rerun `python src/figures.py`
+with the viewer closed. The annotated point stays 2025-04-02 but its numbers
+change: forecast 28.0% → **13.8%**, underprediction 58.3pp → **72.5pp**. The
+thesis paragraph quoting those figures needs updating with it.
+
 **[act now] No significance testing on model comparisons yet.** The
 econometric table (GJR-GARCH < GARCH < EWMA on MAE/RMSE/QLIKE) shows ranked
 numbers but not whether the differences are statistically meaningful. A
@@ -34,8 +76,10 @@ method. Say so explicitly in the conclusions/limitations section rather
 than let an evaluator find it unstated — a named limitation reads as rigor,
 an unnamed one reads as an oversight. The simple ES backtest
 (`results/tables/backtest_summary.csv`) shows realised shortfall exceeding
-forecasted ES by ~8-21% across models on violation days — that part of the
-under-coverage story holds and is unaffected by the item below.
+forecasted ES by **~8-24%** across models on violation days (was ~8-21%
+before the 2026-08-13 walk-forward fix; the econometric rows are unchanged,
+the widening is RF/XGBoost) — that part of the under-coverage story holds and
+is unaffected by the item below.
 
 **Correction (2026-08-12) — the full-sample Christoffersen "clustering"
 result was mostly a mechanical artifact, not a genuine per-model finding.**
@@ -49,11 +93,14 @@ serially correlated regardless of whether the underlying volatility
 process clusters at all. Re-running Christoffersen on a non-overlapping
 subsample (every 5th test date, so consecutive checks share zero
 underlying returns -- `results/tables/christoffersen_nonoverlap_check.csv`)
-flips the result completely: independence p-values move to 0.32-0.51 for
+flips the result completely: independence p-values move to **0.27-0.51** for
 every model, and every model has **zero** consecutive violations in the
-subsample (n11=0). The original full-sample LR statistics (60-125,
+subsample (n11=0). The original full-sample LR statistics (59-116,
 against a chi2(1) critical value of ~3.84) were almost entirely the
 overlapping-horizon artifact, not a per-model signal.
+(p-value range and LR range both restated 2026-08-13 after the walk-forward
+fix changed the RF/XGBoost forecasts; the conclusion is unchanged, and the
+econometric numbers in it never moved.)
 **Practical effect on the thesis**: don't present the original
 Christoffersen failure as a finding that discriminates between models --
 it doesn't (it's ~identical in cause across all five). If Christoffersen

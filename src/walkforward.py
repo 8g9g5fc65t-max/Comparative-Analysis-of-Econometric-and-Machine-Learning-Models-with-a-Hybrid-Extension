@@ -1,16 +1,40 @@
 """Expanding-window walk-forward engine -- the harness every model plugs into.
 
-At each test-period date t: refit (per the model's cadence) on the expanding
-window of data up to and including t, then ask for a forecast of target_rv_5d
-at t. Output is a (date, forecast, actual) DataFrame for evaluation.py.
+At each test-period date t the harness builds `available_history(df, t)`: every
+row up to and including t, with the forward-looking label columns of the last
+TARGET_WINDOW rows masked to NaN because those labels have not happened yet.
+That single frame is handed to both fit() and predict(), so a model physically
+cannot reach information that did not exist at t.
 
 Model interface (duck-typed, no base class -- econometric and ML models
 share this without inheriting anything):
-    model.fit(history: pd.DataFrame) -> None   # history = df[Date <= t]
-    model.predict() -> float                    # forecast for date t
+    model.fit(history: pd.DataFrame) -> None      # re-estimate parameters
+    model.predict(history: pd.DataFrame) -> float # forecast for history's LAST date
 
-`history` carries every column in df, including target_rv_5d for past dates
--- a model must never use that column as an input feature (it's the label).
+TWO RULES, and the interface exists to enforce both structurally:
+
+1. PREDICTION FRESHNESS. predict() is called on *every* test date and must
+   derive its answer from the `history` it is handed on that call. It must
+   never read inputs cached during fit(). refit_frequency controls how often
+   PARAMETERS are re-estimated -- it must not control how often the forecast
+   is refreshed. (predict() taking `history` explicitly, rather than models
+   stashing a feature vector during fit(), is precisely what makes the two
+   concerns impossible to conflate again: there is no stale state to read.)
+   A model whose parameters are structurally tied to their estimation sample
+   -- the arch-backed GARCH family -- must assert that its fit is current for
+   the passed history rather than silently return a stale forecast; see
+   models/econometric.py.
+
+2. NO FUTURE LABELS. Training rows must never carry a label whose window
+   reaches past t. The harness guarantees this by masking, so models just
+   dropna() on the label column as usual and get the right training set for
+   free. This is features.TrainTestSplit.split()'s train/test boundary rule
+   applied continuously instead of once.
+
+Both rules were violated before 2026-08-13 (weekly-cadence ML models froze one
+forecast per ISO week, and every training set leaked five forward-reaching
+labels including the very row being predicted); the interface is shaped the way
+it is so neither can be reintroduced by a model added later.
 """
 import sys
 from pathlib import Path
@@ -18,9 +42,17 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from features import build_features, load_processed, TrainTestSplit, TARGET_COL
+from features import (build_features, load_processed, mask_unknown_labels,
+                      TrainTestSplit, TARGET_COL)
 
 REFIT_FREQUENCIES = ("daily", "weekly")
+
+
+def available_history(df, t):
+    """Everything genuinely knowable at forecasting date t: all rows up to and
+    including t, with labels that reach past t masked out (features.py's
+    mask_unknown_labels). The only frame the harness ever gives a model."""
+    return mask_unknown_labels(df[df["Date"] <= t])
 
 
 def run_walkforward(df, model, refit_frequency="daily", split=None, target_col=TARGET_COL):
@@ -37,7 +69,7 @@ def run_walkforward(df, model, refit_frequency="daily", split=None, target_col=T
     current_week = None
     for _, row in test.iterrows():
         t = row["Date"]
-        history = df[df["Date"] <= t]
+        history = available_history(df, t)
 
         if refit_frequency == "daily":
             should_refit = True
@@ -48,7 +80,9 @@ def run_walkforward(df, model, refit_frequency="daily", split=None, target_col=T
 
         if should_refit:
             model.fit(history)
-        forecast = model.predict()
+        # Unconditional, and outside the refit branch on purpose: the forecast
+        # is refreshed every day regardless of cadence (rule 1 above).
+        forecast = model.predict(history)
 
         records.append({"Date": t, "forecast": forecast, "actual": row[target_col]})
 
@@ -58,16 +92,16 @@ def run_walkforward(df, model, refit_frequency="daily", split=None, target_col=T
 class NaiveLastValueModel:
     """Trivial baseline used only to smoke-test the engine: forecasts
     tomorrow's target as today's 5-day trailing historical vol. Not one of
-    the thesis models -- those live in src/models/."""
+    the thesis models -- those live in src/models/.
 
-    def __init__(self):
-        self._last_hist_vol = None
+    Holds no state between calls, which is the point: predict() reads the
+    current history it is given."""
 
     def fit(self, history):
-        self._last_hist_vol = history["hist_vol_5d"].iloc[-1]
+        """No parameters to estimate."""
 
-    def predict(self):
-        return self._last_hist_vol
+    def predict(self, history):
+        return float(history["hist_vol_5d"].iloc[-1])
 
 
 def main():
