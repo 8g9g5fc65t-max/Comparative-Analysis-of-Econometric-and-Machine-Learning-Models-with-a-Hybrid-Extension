@@ -277,3 +277,37 @@ rewrite history.
   other illegibly. Fixed with an explicit date locator/formatter and
   repositioned annotation, re-rendered, re-checked visually before
   finalising.
+
+## 2026-08-13 — Replaced forecast_vs_actual_test.pdf with a forecast-error plot
+
+- **Tool**: Claude Code (Anthropic).
+- **Caught a sign-convention error in the user's own request before
+  building anything**: the request said "negative values mean the model
+  underestimated realised volatility" for `error = actual - forecast`.
+  That's backwards -- with that formula, a *positive* error means
+  actual > forecast, i.e. realised volatility came in higher than
+  predicted, which is the underprediction case. Checked both extremes for
+  XGBoost directly before picking one: most negative error was
+  2025-04-10 (actual=0.2133, forecast=0.6617, error=-0.4484 --
+  *over*-prediction, forecast far exceeded what happened); most positive
+  was 2025-04-02 (actual=0.8629, forecast=0.2797, error=+0.5832 -- genuine
+  underprediction, and a dramatic one: realised vol hit 86.3% annualised
+  against a 28.0% forecast). Annotated the second one; flagged the
+  discrepancy to the user rather than silently building whichever the
+  literal instruction implied.
+- **Scope**: `src/figures.py` -- `plot_forecast_vs_actual()` replaced with
+  `plot_forecast_error()` (GJR-GARCH and XGBoost error series, zero
+  reference line, XGBoost's largest underprediction annotated,
+  y-axis "Forecast error (actual − forecast)"). Saved as
+  `results/figures/forecast_error_test.pdf` (new filename, per
+  instructions, since this replaces rather than edits the old plot);
+  the old `forecast_vs_actual_test.pdf` removed from the repo
+  (`git rm`, still recoverable from history). `returns_timeseries.pdf`
+  was locked (open in a viewer) during this session and wasn't touched --
+  it didn't need to be regenerated anyway, since only the second figure
+  changed.
+- **Verification**: rendered a PNG preview and checked it visually before
+  finalising (same discipline as last session's date-tick catch) --
+  annotation placement and legend didn't collide, date ticks stayed
+  legible reusing the existing 6-month locator/rotation. Confirmed the
+  final PDF is 13cm x 7cm by reading its `/MediaBox` directly.

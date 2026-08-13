@@ -2,9 +2,11 @@
 
 - returns_timeseries.pdf: daily log returns, full sample, COVID-crash
   point annotated.
-- forecast_vs_actual_test.pdf: test-period target_rv_5d vs. GJR-GARCH and
-  XGBoost forecasts (results/tables/forecasts_all_models.csv -- no
-  walk-forward re-run needed).
+- forecast_error_test.pdf: test-period forecast error (actual - forecast)
+  for GJR-GARCH and XGBoost (results/tables/forecasts_all_models.csv --
+  no walk-forward re-run needed). Positive error means actual > forecast,
+  i.e. the model UNDERpredicted realised volatility (forecast too low) --
+  XGBoost's single largest underprediction is annotated.
 
 Both sized for a single-column thesis page (~13cm wide) and styled plain:
 white background, no gridlines, minimal decoration.
@@ -66,22 +68,41 @@ def plot_returns_timeseries(df, path):
     plt.close(fig)
 
 
-def plot_forecast_vs_actual(df, path):
+def plot_forecast_error(df, path):
+    """df: forecasts_all_models.csv, already restricted to rows with a
+    valid actual (tail NaN rows dropped by the caller). Error = actual -
+    forecast: positive means the model underpredicted realised volatility
+    (forecast too low, the dangerous direction for risk management);
+    negative means it overpredicted."""
+    error_gjr = df["actual"] - df["GJR-GARCH"]
+    error_xgb = df["actual"] - df["XGBoost"]
+
     fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.plot(df["Date"], df["actual"], color="black", linewidth=0.9,
-             label="Actual (target_rv_5d)")
-    ax.plot(df["Date"], df["GJR-GARCH"], color="#2ca02c", linewidth=0.8,
-             label="GJR-GARCH forecast")
-    ax.plot(df["Date"], df["XGBoost"], color="#ff7f0e", linewidth=0.8,
-             label="XGBoost forecast")
+    ax.axhline(0, color="gray", linewidth=0.8, zorder=1)
+    ax.plot(df["Date"], error_gjr, color="#2ca02c", linewidth=0.8,
+             label="GJR-GARCH error")
+    ax.plot(df["Date"], error_xgb, color="#ff7f0e", linewidth=0.8,
+             label="XGBoost error")
+
+    worst_idx = error_xgb.idxmax()  # largest underprediction: max(actual - forecast)
+    worst_date = df["Date"].loc[worst_idx]
+    worst_value = error_xgb.loc[worst_idx]
+    ax.plot(worst_date, worst_value, "o", color="#d62728", markersize=4, zorder=5)
+    ax.annotate(
+        f"{worst_date.date()} ({worst_value:+.3f})",
+        xy=(worst_date, worst_value),
+        xytext=(-95, -12), textcoords="offset points",
+        fontsize=7, color="#d62728",
+        arrowprops=dict(arrowstyle="->", color="#d62728", lw=0.8),
+    )
 
     ax.set_xlabel("Date")
-    ax.set_ylabel("Annualised volatility")
+    ax.set_ylabel("Forecast error (actual − forecast)")
     ax.set_xlim(df["Date"].min(), df["Date"].max())
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=6))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
     fig.autofmt_xdate(rotation=30, ha="right")
-    ax.legend(frameon=False, fontsize=7, loc="upper right")
+    ax.legend(frameon=False, fontsize=7, loc="upper left")
     fig.tight_layout()
     fig.savefig(path, format="pdf")
     plt.close(fig)
@@ -96,8 +117,9 @@ def main():
     print(f"Saved: {path1}")
 
     forecasts = pd.read_csv(FORECASTS_PATH, parse_dates=["Date"])
-    path2 = FIGURES_DIR / "forecast_vs_actual_test.pdf"
-    plot_forecast_vs_actual(forecasts, path2)
+    forecasts = forecasts.dropna(subset=["actual"]).reset_index(drop=True)
+    path2 = FIGURES_DIR / "forecast_error_test.pdf"
+    plot_forecast_error(forecasts, path2)
     print(f"Saved: {path2}")
 
 
