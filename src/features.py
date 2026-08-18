@@ -8,14 +8,20 @@ Reads data/processed/gspc_processed.csv (from data_pipeline.py) and builds:
     separate column, computed directly from log_return -- NOT derived from
     target_rv_5d, which discards the sign. Needed to check whether a
     realised loss actually breached a VaR forecast (risk.py/backtesting.py).
-  - RQ1_ML_FEATURES: exactly six columns -- one lagged return (r_{t-1}),
-    one lagged absolute return (|r_{t-1}|), one lagged squared return
-    (r_{t-1}^2), and 5/10/20-day trailing historical vol. This is
-    CLAUDE.md's RQ1 feature set (pure ML vs. econometric horse race) and
-    matches the finalised thesis methodology text exactly -- no multi-lag
-    expansion. Deliberately excludes any GARCH/EWMA-derived input: mixing
-    those in would make the RQ1 comparison circular. GARCH-informed
-    features belong only to the hybrid model (RQ2), built separately.
+  - RQ1_ML_FEATURES: exactly six columns -- today's return (r_t), today's
+    absolute return (|r_t|), today's squared return (r_t^2), and 5/10/20-day
+    trailing historical vol. This is CLAUDE.md's RQ1 feature set (pure ML vs.
+    econometric horse race) and matches the thesis methodology text exactly --
+    no multi-lag expansion. Deliberately excludes any GARCH/EWMA-derived
+    input: mixing those in would make the RQ1 comparison circular.
+    GARCH-informed features belong only to the hybrid model (RQ2), built
+    separately.
+    All six are dated at t and use information through the close of day t.
+    That is not leakage: the target sums r_{t+1}..r_{t+5}, strictly after t,
+    so r_t is known when the forecast is made. Until 2026-08-13 the three
+    return features were shifted a further day back (r_{t-1}), which
+    contradicted both the thesis text and hist_vol_*d beside them -- the
+    models were handed less information than the write-up claimed.
 target_rv_5d and hist_vol_* share one annualised realised-vol formula,
 sqrt((252/n) * sum r^2), just applied looking forward vs. backward.
 """
@@ -44,16 +50,20 @@ TRADING_DAYS_PER_YEAR = 252
 FORWARD_LABEL_COLS = (TARGET_COL, TARGET_RET_COL)
 
 # RQ1 ML feature set (CLAUDE.md, "kept separate to avoid circularity", and
-# matching the finalised thesis methodology text exactly): one lagged
-# return, one lagged absolute return, one lagged squared return, plus
-# 5/10/20-day historical vol -- SIX columns, no multi-lag expansion. No
-# GARCH/EWMA inputs here -- those are hybrid-model-only. Named and explicit
-# so downstream code (ml_models.py, hybrid.py) imports this list instead of
-# re-deriving or blurring the RQ1-vs-hybrid feature split.
+# matching the thesis methodology text exactly): today's return, absolute
+# return and squared return, plus 5/10/20-day historical vol -- SIX columns,
+# no multi-lag expansion. Every one is measured at t and uses information
+# through the close of day t, consistent with each other and with the
+# thesis's r_t / |r_t| / r_t^2 / sigma_{5,t} notation. No GARCH/EWMA inputs
+# here -- those are hybrid-model-only. Named and explicit so downstream code
+# (ml_models.py, hybrid.py) imports this list instead of re-deriving or
+# blurring the RQ1-vs-hybrid feature split.
+# Column names say "today_" rather than "lag_": these are NOT lagged, and the
+# old lag_* names described a shift the spec never asked for.
 RQ1_ML_FEATURES = [
-    "lag_return_1",
-    "lag_abs_return_1",
-    "lag_sq_return_1",
+    "today_return",
+    "today_abs_return",
+    "today_sq_return",
 ] + [f"hist_vol_{w}d" for w in HIST_VOL_WINDOWS]
 
 # Train/test cutoff (locked in per CLAUDE.md): train = Date <= SPLIT_DATE,
@@ -96,11 +106,14 @@ def build_features(df):
     for w in HIST_VOL_WINDOWS:
         df[f"hist_vol_{w}d"] = _annualized_rv(r2, w)
 
-    # Lagged/absolute/squared return, lag 1 only (RQ1 ML feature set).
-    # shift(1) uses only r_{t-1} -- strictly past information, no leakage.
-    df["lag_return_1"] = df["log_return"].shift(1)
-    df["lag_abs_return_1"] = df["log_return"].abs().shift(1)
-    df["lag_sq_return_1"] = r2.shift(1)
+    # Today's return / absolute return / squared return (RQ1 ML feature set).
+    # No shift: row t carries r_t, which is known at the close of day t. The
+    # target at t is built from r_{t+1}..r_{t+5} (strictly later), so using
+    # r_t is information available at the forecasting date, not leakage --
+    # the same standard hist_vol_*d above already meets (its window ends at t).
+    df["today_return"] = df["log_return"]
+    df["today_abs_return"] = df["log_return"].abs()
+    df["today_sq_return"] = r2
 
     return df
 

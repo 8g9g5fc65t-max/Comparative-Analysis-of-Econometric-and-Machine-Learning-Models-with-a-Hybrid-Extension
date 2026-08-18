@@ -311,3 +311,54 @@ rewrite history.
   annotation placement and legend didn't collide, date ticks stayed
   legible reusing the existing 6-month locator/rotation. Confirmed the
   final PDF is 13cm x 7cm by reading its `/MediaBox` directly.
+
+## 2026-08-13 — Pre-hybrid audit; three correctness fixes; tree figure
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope, Part 0 (audit)**: Full pre-hybrid audit at the user's request —
+  every figure in the LaTeX cross-checked against its source CSV, a real
+  `pdflatex` compile, code-vs-text consistency, reproducibility trace,
+  tense/terminology pass, docs hygiene. ~30 findings; the numeric
+  cross-check found one transcription error ("within 13% on RMSE" is the
+  MAE figure; RMSE is 18%). Two genuine correctness bugs found and, on a
+  follow-up instruction, fixed (below). Most findings remain unactioned.
+- **Scope, Part 1 (walk-forward contract)**: `predict()` took no arguments
+  and reused a feature row cached during `fit()`, so weekly-refit RF and
+  XGBoost emitted one frozen forecast per ISO week (184 distinct values
+  across 879 test dates). Separately, the training set at date t included
+  row t, whose label sums r_{t+1}..r_{t+5} — the exact (X, y) pair being
+  predicted. Fixed structurally rather than per-model: the interface is now
+  `fit(history)`/`predict(history)`, and `walkforward.available_history()`
+  masks not-yet-knowable labels before any model sees the frame, so
+  `hybrid.py` inherits both guarantees. arch-backed models now raise instead
+  of serving a stale forecast.
+- **Scope, Part 2 (feature timing)**: the three return features were built
+  with `.shift(1)` (r_{t-1}) while `hist_vol_*d` correctly ended at t —
+  contradicting the thesis's own r_t notation. Not leakage (too
+  conservative, not too permissive). Renamed to `today_*` and de-lagged.
+- **Regression discipline**: the user required econometric output to be
+  unchanged. The first check reported FAIL at ~1e-16 — the assistant
+  diagnosed this as the *check* being wrong, not the fix: pandas 3.0 writes
+  CSVs at 16 significant digits, so the committed file does not round-trip
+  float64 and was never a valid baseline (the same delta appeared on a
+  column the change cannot touch). Re-run in memory against a pristine
+  `git worktree` of the pre-fix commit: EWMA/GARCH/GJR-GARCH bitwise
+  identical, and character-identical in the regenerated CSV.
+- **Effect on results, stated plainly**: RF/XGBoost numbers moved twice.
+  GJR-GARCH holds RMSE and QLIKE; **Random Forest now has the lowest MAE**
+  (0.04341 vs 0.04358). XGBoost wins no metric and fails Kupiec at 99%
+  (p=0.0129). The original write-up's central claim — XGBoost best on MAE —
+  does not survive. Reported to the user rather than presented as a
+  refinement.
+- **Scope, Part 3 (tree figure)**: `results/figures/xgboost_tree_example.pdf`
+  — tree 0 of a one-off 200-tree fit on the 2011–2022 training split, same
+  hyperparameters/seed as the evaluated model, explicitly separate from the
+  walk-forward refits. Drawn with matplotlib from `trees_to_dataframe()`
+  rather than `xgboost.plot_tree`, which needs graphviz plus a `dot` binary
+  (absent here, and a system dependency a reader reproducing the repo would
+  have to install). First render had the yes/no edge labels colliding with
+  node boxes; caught by rendering a PNG preview and looking at it, replaced
+  with a stated branch convention.
+- **Also**: `thesis/` deleted at the user's request (write-up moved to
+  Overleaf; recoverable from git history). LaTeX is to be delivered in chat
+  from now on.

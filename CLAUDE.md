@@ -83,9 +83,21 @@ Order: data pipeline → walk-forward engine → econometric models → ML model
   if time allows.
 - **Feature sets — kept separate to avoid circularity**:
   - RQ1 comparison (pure ML vs. econometric horse race): ML features are
-    lagged/absolute/squared returns and 5/10/20-day historical vol **only**.
-    Do NOT feed GARCH/EWMA forecasts into this feature set — it would make
-    the ML-vs-econometric comparison circular.
+    today's return, absolute return and squared return, plus 5/10/20-day
+    historical vol — six columns, **only**. Do NOT feed GARCH/EWMA forecasts
+    into this feature set — it would make the ML-vs-econometric comparison
+    circular.
+- **Every RQ1 feature is dated at t and uses information through the close of
+  day t — no extra lag.** The target sums r_{t+1}..r_{t+5}, strictly after t,
+  so r_t is known when the forecast is made; using it is not leakage. The
+  columns are named `today_return` / `today_abs_return` / `today_sq_return`
+  precisely so the names cannot imply a shift that isn't there.
+  *Why this is spelled out:* until 2026-08-13 the three return features were
+  built with `.shift(1)` (r_{t-1}) while `hist_vol_*d` beside them correctly
+  ended at t — so the feature set silently mixed two different information
+  cutoffs, and the models were handed *less* than the thesis claimed. Not
+  leakage (it was too conservative, not too permissive), but a real
+  code-vs-spec mismatch. Fixing it improved every RF/XGBoost metric.
   - Hybrid model (RQ2): ML component is trained to predict the **residual**
     left unexplained by GARCH, i.e. σ̂_hybrid = σ̂_GARCH + ê_ML. This is
     where GARCH/EWMA-derived features belong.
@@ -124,11 +136,13 @@ tfm-volatility-forecasting/
 │   ├── walkforward.py
 │   ├── evaluation.py
 │   ├── risk.py
-│   └── backtesting.py
+│   ├── backtesting.py
+│   ├── descriptive_stats.py
+│   └── figures.py
 ├── results/{tables,figures}/
-├── thesis/          # LaTeX source
-└── docs/ai_usage_log.md
+└── docs/{ai_usage_log.md, risks_and_roadmap.md, data_provenance.md}
 ```
+No `thesis/` directory — the LaTeX lives in Overleaf (see "Current status").
 
 ## Conventions
 - Python, fixed random seeds wherever relevant.
@@ -162,25 +176,32 @@ backtesting (`src/backtesting.py`) are built and run in
 Dev environment moved to Python 3.11 (see `requirements.txt`). See README.md
 for how to run things.
 
-**Thesis draft**: `thesis/Thesis.tex` (note: `Thesis.tex`, not `main.tex`) is
-drafted end to end — Introduction, Literature Review, Data, Methodology,
-Results, Conclusions — with the hybrid-model subsection written in future
-tense as a placeholder and no bibliography yet.
+**Thesis document lives in Overleaf, NOT in this repo.** `thesis/` was deleted
+on 2026-08-13 (recoverable from git history — it was committed in `e376036`).
+Do not recreate it. When the write-up needs changing, **output the LaTeX in
+chat** for the author to paste into Overleaf. The draft there covers
+Introduction, Literature Review, Data, Methodology, Results and Conclusions,
+with the hybrid-model subsection in future tense and no bibliography yet.
 
-**2026-08-13 — walk-forward correctness fix, and what it invalidated.** The
-two rules now in "Methodology decisions" (prediction freshness, no future
-labels) were both being violated. Fixing them changed every Random Forest and
-XGBoost number and **inverted the headline RQ1 result**: GJR-GARCH now wins on
-all three loss functions, XGBoost no longer has the best MAE (it is worst on
-RMSE), and "no single model dominates" is no longer true. Econometric results
-are bitwise unchanged. `results/tables/*` are regenerated and current; the
-Results and Conclusions sections of `thesis/Thesis.tex` still describe the old,
-wrong numbers and need rewriting against the committed tables.
+**2026-08-13 — three correctness fixes, and what they invalidated.** Prediction
+freshness, future labels, and feature timing (all three now in "Methodology
+decisions") were being violated. Econometric results are **bitwise unchanged**
+throughout; every RF/XGBoost number moved twice. Net effect on the headline
+RQ1 result:
+- GJR-GARCH wins RMSE and QLIKE outright.
+- **Random Forest now has the lowest MAE** (0.04341 vs GJR-GARCH's 0.04358,
+  a 0.4% gap), so "no single model dominates all three criteria" is true
+  again — but with RF, not XGBoost, as the ML model that wins a metric.
+- XGBoost wins nothing: 3rd on MAE, 4th on RMSE and QLIKE, and it is the
+  model whose 99% VaR coverage fails hardest.
+`results/tables/*` and `results/figures/*` are regenerated and current. The
+Overleaf Results and Conclusions still describe the *original* (pre-fix)
+numbers and need rewriting against the committed tables.
 
 A full audit on 2026-08-13 also found ~30 further issues (missing
-`references.bib`, an undefined `\ref`, thesis/code mismatches, README gaps).
-Only the two correctness bugs and one figure-path typo were fixed; the rest
-is unactioned.
+`references.bib`, an undefined `\ref{sec:dm}`, two overfull tables,
+README/reproducibility gaps). Only the three correctness bugs and one
+figure-path typo were fixed; the rest is unactioned.
 
 ## Related docs
 `docs/risks_and_roadmap.md` tracks known risks/watch-items and a prioritized

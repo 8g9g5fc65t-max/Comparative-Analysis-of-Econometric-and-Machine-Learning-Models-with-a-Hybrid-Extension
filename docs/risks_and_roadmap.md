@@ -49,12 +49,31 @@ best-MAE model has the worst tail coverage — no longer holds, because XGBoost
 no longer has the best MAE. Results, Conclusions and §5.2 of `thesis/Thesis.tex`
 describe the old numbers and must be rewritten against the regenerated tables.
 
-**[act now] `results/figures/forecast_error_test.pdf` is stale.** It still
-plots the pre-fix XGBoost forecasts. Regeneration is blocked only by a file
-lock (both figure PDFs were open in a viewer); rerun `python src/figures.py`
-with the viewer closed. The annotated point stays 2025-04-02 but its numbers
-change: forecast 28.0% → **13.8%**, underprediction 58.3pp → **72.5pp**. The
-thesis paragraph quoting those figures needs updating with it.
+**RESOLVED (2026-08-13) — RQ1 feature timing: return features were lagged a
+day further than the spec.** `lag_return_1/lag_abs_return_1/lag_sq_return_1`
+were built with `.shift(1)`, i.e. r_{t-1}, while `hist_vol_5d/10d/20d` beside
+them correctly used a window ending at t — so the six-feature set mixed two
+information cutoffs, and contradicted the thesis's own r_t / |r_t| / r_t^2
+notation. **Not leakage**: it was too conservative, handing the models less
+information than advertised, which is why it survived every earlier
+no-leakage check. Fixed by dropping the shift and renaming the columns to
+`today_return` / `today_abs_return` / `today_sq_return` so the names cannot
+imply a shift that isn't there. Verified after the change: all six features
+reconstructible from returns ≤ t, target still built from r_{t+1}..r_{t+5}
+only, label masking intact, newest training row still ≥5 rows before t.
+*Effect*: every RF/XGBoost metric improved (RMSE ~5%, MAE ~2%) and **the
+ranking changed again — Random Forest took the best MAE from GJR-GARCH**
+(0.04341 vs 0.04358). Econometric numbers bitwise unchanged.
+
+**[act now] The Overleaf write-up describes pre-fix numbers throughout.**
+Results, Conclusions and §5.2 still quote the original ranking (XGBoost best
+MAE, "no single model dominates" justified by XGBoost). Also stale and needing
+the regenerated values: the forecast-error figure paragraph (now 2025-04-02,
+XGBoost forecast **13.3%** vs realised 86.3%, under by **73.0pp**) and the ES
+excess range (8–21% → **8–24%**). The ML feature table should now read r_t /
+|r_t| / r_t^2 — which, after the feature-timing fix, matches the code exactly
+for the first time. The Christoffersen sentence ("all five pass, p > 0.32")
+needs **no** change: the non-overlap minimum is 0.3216 again.
 
 **[act now] No significance testing on model comparisons yet.** The
 econometric table (GJR-GARCH < GARCH < EWMA on MAE/RMSE/QLIKE) shows ranked
@@ -93,14 +112,15 @@ serially correlated regardless of whether the underlying volatility
 process clusters at all. Re-running Christoffersen on a non-overlapping
 subsample (every 5th test date, so consecutive checks share zero
 underlying returns -- `results/tables/christoffersen_nonoverlap_check.csv`)
-flips the result completely: independence p-values move to **0.27-0.51** for
+flips the result completely: independence p-values move to **0.32-0.51** for
 every model, and every model has **zero** consecutive violations in the
 subsample (n11=0). The original full-sample LR statistics (59-116,
 against a chi2(1) critical value of ~3.84) were almost entirely the
 overlapping-horizon artifact, not a per-model signal.
-(p-value range and LR range both restated 2026-08-13 after the walk-forward
-fix changed the RF/XGBoost forecasts; the conclusion is unchanged, and the
-econometric numbers in it never moved.)
+(Both ranges restated 2026-08-13 against the final post-fix tables. They moved
+transiently mid-session — after the walk-forward fix the p-range was 0.27-0.51
+— and landed back at 0.32-0.51 once the feature-timing fix went in. The
+conclusion never changed, and the econometric numbers in it never moved.)
 **Practical effect on the thesis**: don't present the original
 Christoffersen failure as a finding that discriminates between models --
 it doesn't (it's ~identical in cause across all five). If Christoffersen
@@ -144,11 +164,12 @@ future edit accidentally upgrade it to a confident claim we can't support.
 **[watch] Feature-set separation (RQ1 vs. hybrid) — re-verify again once
 the hybrid model is built.** `CLAUDE.md` specifies pure ML features for RQ1
 (no GARCH/EWMA inputs) and GARCH-informed features only for the hybrid
-model. Checked at RF/XGBoost implementation time: `RQ1_ML_FEATURES` in
-`features.py` is a named, explicit constant (lagged/absolute/squared
-returns + 5/10/20-day historical vol only), `ml_models.py` imports it
-rather than re-listing columns, and the underlying dataframe never even
-contains a GARCH/EWMA-named column to leak in accidentally. Still worth a
+model. Checked at RF/XGBoost implementation time and re-checked 2026-08-13:
+`RQ1_ML_FEATURES` in `features.py` is a named, explicit constant (today's
+return / absolute return / squared return + 5/10/20-day historical vol only),
+`ml_models.py` imports it rather than re-listing columns, and the underlying
+dataframe never even contains a GARCH/EWMA-named column to leak in
+accidentally. Still worth a
 second look once `hybrid.py` exists and GARCH-derived features enter the
 codebase for real — that's when the two sets will actually sit side by
 side.
