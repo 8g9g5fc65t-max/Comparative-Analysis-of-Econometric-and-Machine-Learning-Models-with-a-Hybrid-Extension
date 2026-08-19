@@ -17,6 +17,7 @@ freshness) from being conflated again -- see walkforward.py's module docstring.
 import warnings
 
 import numpy as np
+import pandas as pd
 from arch import arch_model
 from arch.utility.exceptions import ConvergenceWarning
 
@@ -107,6 +108,37 @@ class _ArchGarchModel:
         variances_pct2 = fc.variance.values[-1]  # on the RETURN_SCALE^2 scale
         variances = variances_pct2 / (RETURN_SCALE ** 2)
         return annualize_5day_vol(variances)
+
+    def in_sample_forecasts(self):
+        """5-day annualised vol forecast for EVERY date in the fitted sample,
+        from the single fit already performed -- one call to arch instead of a
+        refit per date.
+
+        Row t is the forecast made at t for t+1..t+TARGET_WINDOW, on exactly
+        the scale predict() returns and exactly the scale features.TARGET_COL
+        is built on, so `TARGET_COL - this` is a residual in vol units.
+        Returns a Series indexed like the fitted sample.
+
+        IN-SAMPLE by construction: parameters were estimated using the whole
+        fitted window, so row t's forecast is informed by data after t. Only
+        use this to build a training target inside a period that is entirely
+        in the past relative to every date being forecast (models/hybrid.py
+        uses it on 2011-2022 only, to train a residual model later applied to
+        2023-2026). Never use it to score forecast accuracy.
+        """
+        if self._result is None:
+            raise RuntimeError("fit() must be called before in_sample_forecasts()")
+        # start=0 is load-bearing: without it arch forecasts only from the END
+        # of the sample and returns a single non-NaN row. start=0 makes every
+        # in-sample date a forecast origin, which is what a per-date residual
+        # needs. The returned index is the fitted sample's index -- i.e. the
+        # caller's rows MINUS any dropped by fit()'s dropna() -- so align on it
+        # rather than assuming it covers every input row.
+        fc = self._result.forecast(horizon=TARGET_WINDOW, start=0, reindex=True)
+        variances = fc.variance.to_numpy() / (RETURN_SCALE ** 2)
+        annualised = np.sqrt((TRADING_DAYS_PER_YEAR / TARGET_WINDOW)
+                              * variances.sum(axis=1))
+        return pd.Series(annualised, index=fc.variance.index)
 
 
 class GARCHModel(_ArchGarchModel):

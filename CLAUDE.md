@@ -101,6 +101,47 @@ Order: data pipeline → walk-forward engine → econometric models → ML model
   - Hybrid model (RQ2): ML component is trained to predict the **residual**
     left unexplained by GARCH, i.e. σ̂_hybrid = σ̂_GARCH + ê_ML. This is
     where GARCH/EWMA-derived features belong.
+- **Hybrid specification (BUILT 2026-08-18, `src/models/hybrid.py`)** — chosen
+  deliberately over alternatives, do not substitute:
+  - Baseline **GJR-GARCH**, not GARCH(1,1): it is the strongest econometric
+    model here, so ML is asked to add value on top of the best benchmark
+    rather than one that is easier to beat.
+  - Residual learner **XGBoost**, not Random Forest: boosting already works by
+    fitting each stage to the previous stage's residuals.
+  - Features: the six RQ1 features **plus** GJR-GARCH's own forecast for that
+    date (7 total). The RQ1 anti-circularity rule does **not** apply here —
+    feeding the econometric forecast to the ML component is the mechanism of a
+    hybrid, not a violation. `RQ1_ML_FEATURES` is imported, never redefined,
+    so the two feature sets cannot drift into each other.
+  - Baseline forecasts have two provenances on purpose: **test period reuses
+    the validated walk-forward GJR-GARCH run** (never recomputed — a
+    reimplementation could drift); **training period uses one in-sample fit**
+    over 2011–2022, not a walk-forward re-run. Those training residuals are
+    in-sample and therefore optimistically small; it is not leakage (every
+    training date precedes the whole test window) but it does bias the
+    residual model toward under-correcting.
+  - The residual column is registered in `features.FORWARD_LABEL_COLS`, so the
+    harness masks it exactly like any other forward-looking label.
+  - ML component refits **weekly** through the standard walk-forward
+    interface, inheriting both correctness guarantees; verified behaviourally
+    (fit once, predict across six dates → 6/6 distinct, no cached state).
+- **Two hybrid variants exist, differing ONLY in the residual model's training
+  objective** (`src/models/hybrid.py`, shared `_HybridBase`):
+  - **Hybrid (symmetric)** — `reg:squarederror`, targets the mean residual.
+  - **Hybrid (quantile)** — `reg:quantileerror` (XGBoost's native pinball
+    loss) at `SELECTED_QUANTILE_ALPHA = 0.95`, targeting an upper quantile of
+    the residual distribution. Motivated by VaR at confidence α being the
+    (1−α) quantile of the loss distribution, so the training objective matches
+    the downstream use.
+  - Same baseline, same 7 features, same capacity, same seed, same weekly
+    cadence — a one-variable comparison by construction.
+  - The quantile level is chosen by `src/quantile_selection.py` on a
+    2011–2019 / 2020–2022 inner split of the **training period only**; the
+    test set is truncated off the frame before anything is fitted, and the
+    truncation is asserted. **Never hand-tune it against a test result.**
+  - **The quantile variant did not work** (2026-08-18) — see Current status.
+    It is kept because the negative result is informative, not because it is a
+    recommended configuration.
 - **QLIKE**: defined on variance, not volatility. Watch unit consistency —
   squaring vol forecasts before computing QLIKE is an easy silent bug.
 - **Backtesting**: Kupiec test (unconditional coverage) + Christoffersen
@@ -109,7 +150,8 @@ Order: data pipeline → walk-forward engine → econometric models → ML model
 ## Models
 - Econometric: EWMA (benchmark), GARCH(1,1), GJR-GARCH (asymmetry).
 - ML: Random Forest, XGBoost.
-- Hybrid: GARCH baseline + ML-on-residual (last to build).
+- Hybrid: GJR-GARCH baseline + XGBoost-on-residual. **Built** — see the
+  hybrid specification bullet above.
 - Evaluation metrics: MAE, RMSE, QLIKE — report all three, no single metric
   is authoritative (per Poon & Granger, 2003).
 
@@ -138,6 +180,7 @@ tfm-volatility-forecasting/
 │   ├── risk.py
 │   ├── backtesting.py
 │   ├── descriptive_stats.py
+│   ├── quantile_selection.py
 │   └── figures.py
 ├── results/{tables,figures}/
 └── docs/{ai_usage_log.md, risks_and_roadmap.md, data_provenance.md}
@@ -163,10 +206,12 @@ honest log of what Claude Code was used for in `docs/ai_usage_log.md` as we
 go, rather than reconstructing it at the end.
 
 ## Current status
-Data pipeline, walk-forward engine, econometric models (EWMA, GARCH,
-GJR-GARCH), and ML models (Random Forest, XGBoost) are built and evaluated
-together in `results/tables/model_comparison.csv`. Per-date forecasts for
-all five models are persisted in `results/tables/forecasts_all_models.csv`
+**All seven models are built and evaluated.** Data pipeline, walk-forward
+engine, econometric models (EWMA, GARCH, GJR-GARCH), ML models (Random Forest,
+XGBoost) and both hybrid variants (symmetric and quantile) are compared in
+`results/tables/model_comparison.csv`; the quantile level's selection trace is
+in `results/tables/hybrid_quantile_selection.csv`. Per-date forecasts for all
+seven models are persisted in `results/tables/forecasts_all_models.csv`
 (for the Diebold-Mariano test later, without re-running walk-forward).
 Gaussian VaR/ES (`src/risk.py`) and Kupiec/Christoffersen/simple-ES
 backtesting (`src/backtesting.py`) are built and run in
@@ -202,6 +247,43 @@ A full audit on 2026-08-13 also found ~30 further issues (missing
 `references.bib`, an undefined `\ref{sec:dm}`, two overfull tables,
 README/reproducibility gaps). Only the three correctness bugs and one
 figure-path typo were fixed; the rest is unactioned.
+
+**2026-08-18 — hybrid model built; the RQ2 answer is genuinely split.** The
+hybrid **improves MAE (−7.8%) and RMSE (−3.5%) over GJR-GARCH but worsens
+QLIKE (+12.5%)**, and it **destroys GJR-GARCH's tail calibration**: 99% Kupiec
+goes from p=0.6754 (comfortable pass, 10 violations) to p=0.0129 (fail, 17
+violations). Mechanism, not speculation: GJR-GARCH systematically runs hot
+(mean forecast 0.1425 vs mean actual 0.1285), so the residual model learned a
+near-uniform downward shading — the correction is negative on 91% of days.
+That shrinks average error but pushes under-prediction from 32.7% to 46.3% of
+days, which is exactly what QLIKE and VaR coverage punish. The ML tail
+weakness **does** carry over: the hybrid's 99% violation set overlaps XGBoost
+on 15 of 17 days and Random Forest on 16, but its own baseline on only 9.
+So RQ2's answer is "adds value on symmetric loss, costs value on
+risk-relevant loss" — not a clean win.
+
+**2026-08-18 — quantile-loss hybrid variant tried; it did NOT fix calibration.**
+Motivated directly by the diagnosis above: train the residual model with
+pinball loss at an upper quantile so the objective matches VaR's own
+definition. Quantile level 0.95 selected on training-period inner-validation
+(2020–2022), test set untouched during selection. **On the test set it
+overshot severely and failed in the opposite direction:**
+- 99% Kupiec: 2 violations (0.23% vs nominal 1%), p=0.0057 — still a FAIL, and
+  a marginally worse one than the symmetric hybrid's p=0.0129. 95% Kupiec
+  collapses outright: 0.80% vs nominal 5%, p=0.0000.
+- Accuracy cost is enormous: MAE +142% and RMSE +90% vs the symmetric hybrid;
+  QLIKE +62%. Mean forecast 0.2177 against mean actual 0.1285.
+- Mechanism: the correction is positive on **100%** of days (mean +0.0752),
+  where the symmetric one was negative on 91%. It swapped systematic
+  under-forecasting for much larger systematic over-forecasting.
+- Cause of the overshoot is a regime shift, not a coding error: inner
+  -validation (2020–2022) has mean realised vol 0.1995, the test period only
+  0.1285 — 36% calmer. A 95th-percentile residual learned under COVID-era
+  stress is far too wide for 2023–2026.
+**GJR-GARCH alone remains the best-calibrated model at 99% (p=0.6754); neither
+hybrid variant beats it on tail calibration.** Keep the negative result — it is
+a real finding about objective-alignment not being sufficient when the
+residual distribution is regime-dependent.
 
 ## Related docs
 `docs/risks_and_roadmap.md` tracks known risks/watch-items and a prioritized

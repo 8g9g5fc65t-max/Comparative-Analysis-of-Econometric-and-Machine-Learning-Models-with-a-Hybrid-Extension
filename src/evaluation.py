@@ -16,6 +16,8 @@ from features import build_features, load_processed
 from walkforward import run_walkforward
 from models.econometric import EWMAModel, GARCHModel, GJRGARCHModel
 from models.ml_models import RandomForestModel, XGBoostModel
+from models.hybrid import (build_hybrid_frame, HybridGJRXGBoostModel,
+                           HybridGJRQuantileModel, SELECTED_QUANTILE_ALPHA)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 # Renamed from econometric_comparison.csv now that ML models (and eventually
@@ -114,6 +116,24 @@ def main():
                for name, model in econometric_models.items()}
     results.update({name: run_walkforward(df, model, refit_frequency="weekly")
                      for name, model in ml_models.items()})
+
+    # Hybrid (RQ2): GJR-GARCH baseline + XGBoost on its residuals. The test
+    # -period baseline forecasts are REUSED from the GJR-GARCH walk-forward
+    # just run above rather than recomputed -- same single validated run that
+    # gets written to forecasts_all_models.csv, so the hybrid cannot drift from
+    # the standalone GJR-GARCH column it is meant to be built on. The ML
+    # component refits weekly, like the other two ML models.
+    # Two variants sharing everything except the residual model's objective:
+    #   symmetric -> squared-error loss, targets the MEAN residual
+    #   quantile  -> pinball loss at SELECTED_QUANTILE_ALPHA, targets an upper
+    #                quantile of the residual distribution, which is what VaR
+    #                (itself a quantile of the loss distribution) actually needs
+    hybrid_df = build_hybrid_frame(df, results["GJR-GARCH"])
+    results["Hybrid (symmetric)"] = run_walkforward(
+        hybrid_df, HybridGJRXGBoostModel(), refit_frequency="weekly")
+    results["Hybrid (quantile)"] = run_walkforward(
+        hybrid_df, HybridGJRQuantileModel(SELECTED_QUANTILE_ALPHA),
+        refit_frequency="weekly")
 
     table = compare_models(results)
     print(table.to_string(float_format=lambda x: f"{x:.5f}"))

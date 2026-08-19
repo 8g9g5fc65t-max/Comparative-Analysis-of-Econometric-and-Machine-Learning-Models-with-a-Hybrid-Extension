@@ -362,3 +362,84 @@ rewrite history.
 - **Also**: `thesis/` deleted at the user's request (write-up moved to
   Overleaf; recoverable from git history). LaTeX is to be delivered in chat
   from now on.
+
+## 2026-08-18 — Hybrid model (RQ2): GJR-GARCH + XGBoost-on-residual
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope**: `src/models/hybrid.py` built to the design specified by the
+  author (GJR-GARCH baseline, XGBoost residual learner, 6 RQ1 features +
+  the GJR-GARCH forecast as a 7th, weekly ML refit, in-sample training
+  residuals, reuse of the validated walk-forward GJR-GARCH forecasts for
+  the test period). Wired into `evaluation.py`; `risk.py`/`backtesting.py`
+  picked the model up automatically since both derive their model list from
+  the forecast columns.
+- **Two bugs caught before they could affect results**, both in the
+  in-sample-forecast path added to `econometric.py`:
+  (1) `arch`'s `forecast(reindex=True)` returns a forecast only from the END
+  of the sample — 3,013 of 3,014 rows came back NaN. `start=0` is required to
+  make every in-sample date a forecast origin. (2) The returned index omits
+  the row dropped by `fit()`'s `dropna()`, so an initial positional
+  alignment would have shifted every training residual by one day. Fixed by
+  aligning on Date and asserting no date carries both an in-sample and a
+  walk-forward baseline.
+- **Unit check, done explicitly** (the author flagged this as the same class
+  as the earlier RETURN_SCALE**2 bug): target, baseline forecast and residual
+  all verified on the 5-day annualised vol scale, with a runtime assertion in
+  `build_hybrid_frame`. Independent confirmation: the final in-sample forecast
+  origin reproduces `predict()` on the same fitted model to all digits
+  (0.2259568448), so the in-sample path and the validated path agree exactly.
+- **Correctness inheritance verified, not assumed**: `gjr_residual` registered
+  in `features.FORWARD_LABEL_COLS` so the harness masks it like any label;
+  freshness re-tested with the same behavioural test used on RF/XGBoost (fit
+  once, predict across six dates -> 6/6 distinct, no cached state).
+- **Result reported in both directions**: the hybrid improves MAE (-7.8%) and
+  RMSE (-3.5%) over GJR-GARCH but worsens QLIKE (+12.5%) and turns
+  GJR-GARCH's comfortable 99% Kupiec pass into a failure (p 0.6754 ->
+  0.0129). The assistant identified the mechanism rather than speculating:
+  GJR-GARCH runs hot on average, the residual model learned a near-uniform
+  downward shading (negative on 91% of days), under-prediction rises from
+  32.7% to 46.3% of days. Violation-set overlap shows the ML tail weakness
+  transfers (15/17 shared with XGBoost, 16 with RF, only 9 with the hybrid's
+  own baseline). Not presented as a win.
+- **Verification**: full chain re-run byte-identical; every table
+  independently recomputed from its upstream inputs; EWMA/GARCH/GJR-GARCH
+  still bitwise identical to the original pre-fix baseline.
+
+## 2026-08-18 — Hybrid variant 2: quantile/pinball-loss residual model
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope**: second hybrid variant motivated by the previous session's
+  diagnosis (a squared-error residual model shades GJR-GARCH down uniformly
+  and breaks its 99% Kupiec calibration). Since VaR at confidence alpha is the
+  (1-alpha) quantile of the loss distribution, the residual model was
+  retrained with XGBoost's native `reg:quantileerror` pinball objective
+  targeting an upper quantile. Confirmed empirically that xgboost 3.2.0
+  supports it (`quantile_alpha` is a passthrough kwarg, not a named
+  parameter; alpha=0.9 verified to put 90.5% of points below the prediction).
+  `hybrid.py` refactored to a shared `_HybridBase` so the two variants differ
+  in exactly one thing, the objective; the symmetric variant was re-verified
+  unchanged after the refactor (max diff 1.1e-16, the known CSV
+  serialization artefact).
+- **Quantile level chosen on training data only**: 2011-2019 inner-train,
+  2020-2022 inner-validation, evaluated through the same walk-forward harness.
+  The frame is truncated at the split date before anything is fitted and the
+  truncation is asserted. Selection trace saved to
+  `results/tables/hybrid_quantile_selection.csv`.
+- **Two selection problems found and reported rather than quietly fixed**:
+  (1) the initial grid (0.5-0.9) returned its own upper boundary with the
+  criterion still improving monotonically, so it was extended to 0.95/0.99 to
+  bracket the optimum; (2) the pre-registered criterion "highest 99% Kupiec
+  p-value" turned out to be degenerate -- it is only bounded by the two-sided
+  test, so it selected alpha=0.99 at roughly 3x the inner-validation MAE, an
+  upper envelope rather than a forecast. Replaced with "lowest
+  inner-validation MAE among Kupiec-passing candidates", which selected 0.95.
+  Both changes used validation data only; the test set was untouched, and the
+  chosen configuration was run through the test walk-forward exactly once.
+- **Result reported as it came out, not steered**: the variant did NOT fix
+  calibration. 99% Kupiec 2 violations (0.23% vs nominal 1%, p=0.0057) -- still
+  a failure and marginally worse by the statistic than the symmetric hybrid's
+  p=0.0129, now from over-conservatism; 95% Kupiec collapses to p=0.0000.
+  MAE +142%, RMSE +90%, QLIKE +62% against the symmetric variant. Cause
+  identified as a regime shift (inner-validation mean realised vol 0.1995 vs
+  0.1285 on test), not a coding error. GJR-GARCH alone remains the
+  best-calibrated model at 99%.

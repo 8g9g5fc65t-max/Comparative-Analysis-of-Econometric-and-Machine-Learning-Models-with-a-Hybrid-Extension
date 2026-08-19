@@ -75,6 +75,55 @@ excess range (8–21% → **8–24%**). The ML feature table should now read r_t
 for the first time. The Christoffersen sentence ("all five pass, p > 0.32")
 needs **no** change: the non-overlap minimum is 0.3216 again.
 
+**[act now] The hybrid's tail-calibration cost is the headline RQ2 finding —
+don't let it get written up as a win.** The hybrid beats GJR-GARCH on MAE
+(−7.8%) and RMSE (−3.5%) and takes first place on both, which is an easy
+result to over-claim. It simultaneously **worsens QLIKE by 12.5%** and turns
+GJR-GARCH's comfortable 99% Kupiec pass (p=0.6754, 10 violations) into a
+failure (p=0.0129, 17 violations). The mechanism is identified, not guessed:
+GJR-GARCH runs hot on average (mean forecast 0.1425 vs mean actual 0.1285), so
+the residual model learned an almost uniform downward shading — negative on
+91% of days, mean −0.0171 — which shrinks symmetric error but raises
+under-prediction from 32.7% to 46.3% of days. QLIKE and VaR coverage both
+punish exactly that. The ML tail weakness demonstrably transfers: the hybrid's
+99% violation set shares 15 of 17 days with XGBoost and 16 with Random Forest,
+but only 9 with its own GJR-GARCH baseline. This is the tutor's "assess
+whether combining actually helps, not just assume it does" question answered
+with evidence in both directions — write it that way.
+
+**TRIED AND FAILED (2026-08-18) — quantile-loss residual model does not fix
+the hybrid's tail calibration.** Direct follow-up to the item above: since VaR
+at confidence α is the (1−α) quantile of the loss distribution, the residual
+model was retrained with XGBoost's `reg:quantileerror` (pinball loss) at an
+upper quantile, so the training objective matches the downstream use instead
+of targeting the mean. Level 0.95 selected on a 2011–2019 / 2020–2022 inner
+split of the training period; test set truncated off the frame before fitting,
+truncation asserted.
+**Result: it overshot and failed in the opposite direction.** 99% Kupiec goes
+from 17 violations (1.95%, p=0.0129) to 2 (0.23%, p=0.0057) — still failing,
+marginally worse by the statistic, now from over-conservatism. 95% Kupiec
+collapses from a comfortable pass to p=0.0000 (0.80% vs nominal 5%). Accuracy
+cost is severe: MAE +142%, RMSE +90%, QLIKE +62% versus the symmetric hybrid.
+The correction is positive on 100% of days (mean +0.0752) where the symmetric
+one was negative on 91%.
+**Why**, and it is not a bug: the residual quantile is regime-dependent.
+Inner-validation (2020–2022) has mean realised vol 0.1995 against 0.1285 in
+2023–2026 — a 36% calmer test period — so a 95th-percentile residual learned
+under COVID-era stress is far too wide later. Two selection artefacts worth
+recording: the first candidate grid (0.5–0.9) returned its own upper boundary,
+so it was extended to 0.95/0.99 to bracket the optimum; and the original
+criterion ("highest 99% Kupiec p") proved degenerate — it is only bounded by
+the two-sided test, so it drove toward alpha=0.99 at 3× the MAE. It was
+replaced with "lowest inner-validation MAE among Kupiec-passing candidates".
+Both changes used validation data only, but adapting a selection rule after
+seeing validation results is itself mild selection-on-validation and should be
+one sentence in the write-up.
+**For the thesis**: this is a genuine negative result and worth keeping.
+Objective alignment alone is not sufficient when the residual distribution
+shifts regime between training and deployment. Note also that **GJR-GARCH
+alone still has the best 99% calibration of any model (p=0.6754)** — neither
+hybrid variant beats it there.
+
 **[act now] No significance testing on model comparisons yet.** The
 econometric table (GJR-GARCH < GARCH < EWMA on MAE/RMSE/QLIKE) shows ranked
 numbers but not whether the differences are statistically meaningful. A
@@ -161,18 +210,39 @@ session.
 characterization of genuine uncertainty, not a weakness — just don't let a
 future edit accidentally upgrade it to a confident claim we can't support.
 
-**[watch] Feature-set separation (RQ1 vs. hybrid) — re-verify again once
-the hybrid model is built.** `CLAUDE.md` specifies pure ML features for RQ1
-(no GARCH/EWMA inputs) and GARCH-informed features only for the hybrid
-model. Checked at RF/XGBoost implementation time and re-checked 2026-08-13:
-`RQ1_ML_FEATURES` in `features.py` is a named, explicit constant (today's
-return / absolute return / squared return + 5/10/20-day historical vol only),
-`ml_models.py` imports it rather than re-listing columns, and the underlying
-dataframe never even contains a GARCH/EWMA-named column to leak in
-accidentally. Still worth a
-second look once `hybrid.py` exists and GARCH-derived features enter the
-codebase for real — that's when the two sets will actually sit side by
-side.
+**RESOLVED (2026-08-18) — feature-set separation, now that the two sets
+actually sit side by side.** This was the open re-verification item for when
+`hybrid.py` exists. Checked at build time: `RQ1_ML_FEATURES` is still exactly
+six columns and still contains no GARCH/EWMA/GJR-named input;
+`HYBRID_ML_FEATURES` is constructed as `list(RQ1_ML_FEATURES) + ["gjr_forecast"]`,
+so it *extends* the RQ1 constant rather than restating it and the two cannot
+drift apart. Both `ml_models.py` and `hybrid.py` import the constant. The
+hybrid's GARCH-derived input is deliberate and confined to the hybrid, which
+is exactly the separation the rule asked for. Verified assertions live in the
+build-time checks, not just in prose.
+
+**RESOLVED (2026-08-18) — hybrid residual label is masked like any other.**
+`gjr_residual` inherits `target_rv_5d`'s forward-looking window, so it is
+registered in `features.FORWARD_LABEL_COLS` and the harness masks it
+automatically; `mask_unknown_labels()` skips absent columns, so the
+registration works even though `build_features()` never creates it. Verified:
+last 5 residuals masked at an arbitrary t, `gjr_forecast` correctly left
+unmasked (made at t, not forward-looking), newest hybrid training row still
+≥5 rows before t. Freshness verified with the same behavioural test used on
+RF/XGBoost: fit once, predict across six dates → 6/6 distinct, no
+DataFrame/Series/ndarray cached on the model.
+
+**[watch] Hybrid training residuals are in-sample, and it shows.** The
+training-period baseline comes from ONE in-sample GJR-GARCH fit over
+2011–2022 (a deliberate cost saving — the component is not being
+re-validated), so those residuals are smaller and easier than the
+out-of-sample errors the model actually meets. Not leakage: every training
+date precedes the entire 2023–2026 test window, so nothing a test forecast is
+built from postdates it. But it biases the residual model toward
+under-correcting, and is a fair thing for an evaluator to ask about — state it
+in the methodology rather than let it be found. If the hybrid result is ever
+challenged, generating the training residuals by walk-forward instead is the
+obvious robustness check (at real compute cost).
 
 **[watch] Timeline — hybrid model is last for a reason.** If the ML stage
 runs long (tuning rabbit hole, debugging `arch`-style scale issues in a new
@@ -184,10 +254,14 @@ plan). Revisit this list before making that call, not after.
 
 ## Future extensions backlog
 
-**[do now] Diebold-Mariano test for pairwise model comparison.** Directly
-strengthens the core Results section rather than being a bolt-on. Do once
-all models (econometric, ML, hybrid) have gone through the same walk-forward
-harness — one round of pairwise tests instead of redoing it per stage.
+**[do now — now UNBLOCKED] Diebold-Mariano test for pairwise model
+comparison.** Directly strengthens the core Results section rather than being
+a bolt-on. The precondition (all models through the same walk-forward
+harness) is met as of 2026-08-18: all six, hybrid included, are in
+`results/tables/forecasts_all_models.csv`, so this is one pairwise pass with
+no walk-forward re-run needed. Two gaps it would now settle: Random Forest
+beats GJR-GARCH on MAE by only 0.4%, and the hybrid beats GJR-GARCH on RMSE
+by 3.5% while losing 12.5% on QLIKE — neither is obviously significant.
 
 **[if time permits] Student-t (or another fat-tailed) VaR as a robustness
 check alongside the Gaussian baseline.** Already flagged as optional in

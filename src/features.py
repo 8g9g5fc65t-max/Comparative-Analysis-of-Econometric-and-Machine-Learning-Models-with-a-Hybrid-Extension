@@ -42,12 +42,23 @@ TARGET_RET_COL = "target_ret_5d"
 HIST_VOL_WINDOWS = (5, 10, 20)
 TRADING_DAYS_PER_YEAR = 252
 
+# The hybrid model's regression target: target_rv_5d minus the GJR-GARCH
+# forecast for the same date (models/hybrid.py builds it). Named here, beside
+# the other labels, because it inherits target_rv_5d's forward-looking window
+# and therefore has to be masked exactly like one -- see FORWARD_LABEL_COLS.
+HYBRID_RESIDUAL_COL = "gjr_residual"
+
 # Every column here is FORWARD-looking: row t's value is built from returns
 # r_{t+1}..r_{t+TARGET_WINDOW}, so it is not knowable until TARGET_WINDOW
 # trading days after t. Anything added to build_features() that looks forward
 # belongs in this tuple -- mask_unknown_labels() (and therefore the whole
 # walk-forward harness) keys off it to decide what a model may see.
-FORWARD_LABEL_COLS = (TARGET_COL, TARGET_RET_COL)
+# HYBRID_RESIDUAL_COL is listed even though build_features() does not create
+# it: mask_unknown_labels() skips absent columns, so listing it here means the
+# hybrid's label is masked automatically the moment hybrid.py adds it, rather
+# than depending on hybrid.py remembering to ask. A forward-looking label that
+# is not in this tuple is exactly the 2026-08-13 leakage bug all over again.
+FORWARD_LABEL_COLS = (TARGET_COL, TARGET_RET_COL, HYBRID_RESIDUAL_COL)
 
 # RQ1 ML feature set (CLAUDE.md, "kept separate to avoid circularity", and
 # matching the thesis methodology text exactly): today's return, absolute
