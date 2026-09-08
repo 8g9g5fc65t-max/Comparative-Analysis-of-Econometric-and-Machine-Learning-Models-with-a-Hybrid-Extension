@@ -443,3 +443,95 @@ rewrite history.
   identified as a regime shift (inner-validation mean realised vol 0.1995 vs
   0.1285 on test), not a coding error. GJR-GARCH alone remains the
   best-calibrated model at 99%.
+
+## 2026-08-18 — Diebold-Mariano test; verified bibliography
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope, Part 1**: `src/diebold_mariano.py` -- DM tests for GJR-GARCH vs.
+  Random Forest and GJR-GARCH vs. Hybrid (symmetric), on all three reported
+  losses. Newey-West HAC (Bartlett) at 4 lags = h-1, per instruction, with lag
+  sensitivity q=0..4 reported so the size of the correction is visible. The
+  HAC estimator was validated against `statsmodels` OLS-on-a-constant with HAC
+  covariance before use (match to 1e-10 at every lag); the shipped module
+  itself depends only on numpy/scipy. Harvey-Leybourne-Newbold small-sample
+  correction reported alongside.
+- **Result worth flagging**: the HAC choice materially changes two of six
+  verdicts (p=0.054 -> 0.16-0.21 on RMSE for both pairs), and Random Forest's
+  headline MAE win over GJR-GARCH turns out to be **not significant
+  (p=0.9098)**. Reported as a constraint on the write-up rather than buried.
+- **Scope, Part 2**: built `references.bib` for the eight Literature Review
+  sources. Every entry verified against Crossref and/or the publisher record
+  rather than written from memory -- which caught an incorrect DOI the
+  assistant would otherwise have supplied for Poon and Granger (2003).
+- **Integrity issue found and reported, not papered over**: the thesis
+  attributes to Misra et al. (2025) a finding that paper does not report (it
+  finds ML clearly beating GARCH, not criterion-dependent rankings), and the
+  source is an SSRN working paper rather than a peer-reviewed article. The
+  assistant declined to reproduce the inaccurate sentence in the converted
+  Literature Review and supplied a corrected version plus the option of
+  dropping the citation. Logged as `[act now]` in
+  `docs/risks_and_roadmap.md`.
+
+## 2026-08-18 (cont.) — Source verification: Gunnarsson et al. attribution
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope**: attempted to verify, against the paper body rather than the
+  abstract, whether Gunnarsson et al. (2024) genuinely discuss data leakage
+  and short-sample overfitting as recurring themes, as the Literature Review
+  claims. Full text could NOT be obtained: ScienceDirect returns 403, and
+  although Unpaywall reports hybrid open access, neither it, Semantic Scholar,
+  nor the NTNU Open repository exposes a retrievable PDF.
+- **Reported as unconfirmed rather than resolved either way.** The verbatim
+  abstract mentions none of data leakage, look-ahead bias or overfitting, and
+  the paper's stated aims are different (ML vs. econometric performance,
+  explainable-AI uptake, future research). The "data leakage" material that
+  search engines surface next to this paper traces to a different 2025
+  Computational Economics review. On that evidence the specific attribution
+  was NOT restored; the safer characterization stands, and two better-sourced
+  quotes from the verified abstract were offered instead.
+
+## 2026-09-08 — Final pre-submission audit; thesis synced back into the repo
+
+- **Tool**: Claude Code (Anthropic).
+- **Scope**: full audit of the complete thesis against its own source data
+  before submission, then applying the author-approved corrections. Compile
+  check, cross-reference and citation check, every printed number re-verified
+  against the committed CSVs, table/page overflow check, and a pass against
+  the university guide's final checklist.
+- **Verification method, not spot-checking**: `backtest_summary.csv`,
+  `christoffersen_nonoverlap_check.csv`, `diebold_mariano.csv` and
+  `model_comparison.csv` were each re-derived from source by re-running the
+  scripts and compared to the committed files (all matched to 1e-9). Derived
+  claims in the prose -- the hybrid's correction statistics, the 2 April 2025
+  episode, the violation-set overlaps, the inner-validation regime shift --
+  were recomputed from `forecasts_all_models.csv` rather than taken on trust.
+- **One real error found, and it changed a stated verdict.** The four Random
+  Forest and XGBoost rows of the Kupiec table were stale pre-feature-timing-fix
+  values. Random Forest at 99% was reported as p=0.0535, "passing only
+  marginally"; it is p=0.0270 and **fails**. XGBoost at 99% was reported as
+  p=0.0059; it is p=0.0129. The document also contradicted itself: the prose
+  said the hybrid matched XGBoost's statistics exactly, which is true of the
+  real numbers and false of the printed row. Corrected in the table, the
+  Results text and the Conclusions.
+- **The correction strengthened the thesis's argument rather than weakening
+  it** -- all three econometric models pass at 99% and all three ML-based
+  models fail -- which is stated here because the opposite outcome would have
+  been equally reportable.
+- **Also found and reported**: the Overleaf project was still building a stale
+  `forecast_error_test.pdf` (annotating +0.583 where current data gives
+  +0.730); an orphaned Conclusions paragraph left at the end of the Literature
+  Review; three cross-references pointing at methodology sections rather than
+  the evidence they invoked; four tables overflowing the text block, one badly
+  enough that a column header was cut off the page; and `diebold_mariano.py`
+  plus its results table being untracked in git, so the section carrying the
+  thesis's only statistically confirmed result had no code in the repository.
+- **Author-directed fixes applied**: the corrections above, plus a descriptive
+  statistics table (Table 1) built from the existing
+  `returns_descriptive_stats.csv` so the heavy-tails argument the Conclusions
+  rely on is shown rather than asserted; `hyperref[hidelinks]`; a full title
+  page; list of tables and figures; and a rewritten README documenting the
+  complete reproduction path, which did not previously exist.
+- **Nothing was fixed before being reported.** The audit was delivered as a
+  findings list first, prioritized, and the author decided what to action.
+- Placeholders deliberately left for the author rather than invented: tutor
+  name, submission date, repository URL.

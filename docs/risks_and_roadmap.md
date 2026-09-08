@@ -43,11 +43,14 @@ round-trip float64 exactly, so a CSV diff is the wrong instrument for this).
 **Consequence, not yet actioned**: the corrected numbers **invert the thesis's
 central RQ1 finding**. GJR-GARCH now beats every model on MAE, RMSE and QLIKE;
 XGBoost falls to 3rd on MAE and *last* on RMSE; "no single model dominates
-across all three criteria" is false. XGBoost still fails Kupiec at 99% and
-fails harder (p 0.027 → 0.0059), but the Conclusions' central irony — that the
-best-MAE model has the worst tail coverage — no longer holds, because XGBoost
-no longer has the best MAE. Results, Conclusions and §5.2 of `thesis/Thesis.tex`
-describe the old numbers and must be rewritten against the regenerated tables.
+across all three criteria" is false. XGBoost still fails Kupiec at 99%, but the
+Conclusions' central irony — that the best-MAE model has the worst tail
+coverage — no longer holds, because XGBoost no longer has the best MAE.
+*(Actioned: Results, Conclusions and §5.2 of `thesis/Thesis.tex` were rewritten
+against the regenerated tables over 2026-08-18/09-08. Note the transient
+XGBoost 99% Kupiec p-value quoted in earlier versions of this entry — 0.0059 —
+was an intermediate value between the walk-forward fix and the feature-timing
+fix; the final figure is **0.0129**.)*
 
 **RESOLVED (2026-08-13) — RQ1 feature timing: return features were lagged a
 day further than the spec.** `lag_return_1/lag_abs_return_1/lag_sq_return_1`
@@ -65,18 +68,36 @@ only, label masking intact, newest training row still ≥5 rows before t.
 ranking changed again — Random Forest took the best MAE from GJR-GARCH**
 (0.04341 vs 0.04358). Econometric numbers bitwise unchanged.
 
-**[act now] The Overleaf write-up describes pre-fix numbers throughout.**
-Results, Conclusions and §5.2 still quote the original ranking (XGBoost best
-MAE, "no single model dominates" justified by XGBoost). Also stale and needing
-the regenerated values: the forecast-error figure paragraph (now 2025-04-02,
-XGBoost forecast **13.3%** vs realised 86.3%, under by **73.0pp**) and the ES
-excess range (8–21% → **8–24%**). The ML feature table should now read r_t /
-|r_t| / r_t^2 — which, after the feature-timing fix, matches the code exactly
-for the first time. The Christoffersen sentence ("all five pass, p > 0.32")
-needs **no** change: the non-overlap minimum is 0.3216 again.
+**RESOLVED (2026-09-08) — the write-up's stale pre-fix numbers are all
+cleared.** Everything this entry used to list (the ranking in Results and
+Conclusions, the forecast-error paragraph at 2025-04-02 with XGBoost at 13.3%
+vs realised 86.3%, the ES excess range 8–24%, the r_t / |r_t| / r_t^2 feature
+table) is now correct in `thesis/Thesis.tex`, and the Christoffersen sentence
+never needed changing (non-overlap minimum is still 0.3216).
 
-**[act now] The hybrid's tail-calibration cost is the headline RQ2 finding —
-don't let it get written up as a win.** The hybrid beats GJR-GARCH on MAE
+**One stale item survived until the final audit, in the Kupiec table**, and it
+is worth recording because of how it hid: the model-comparison tables had been
+updated but the **Random Forest and XGBoost Kupiec rows had not**, so they
+still carried pre-feature-timing-fix values. RF at 99% was printed as p=0.0535
+("passes only marginally") when it is actually **16 violations, 1.83%,
+LR 4.891, p=0.0270 — a FAIL**; XGBoost at 99% was printed as 2.06% / 7.588 /
+0.0059 when it is 17 violations / 6.179 / **0.0129**. Both Results and
+Conclusions asserted the wrong RF verdict.
+*Why it survived*: the surrounding prose was independently correct (it already
+said the hybrid matched XGBoost's statistics exactly, which is true of the real
+numbers and false of the printed row), so the document contradicted itself on
+the same page rather than reading as obviously wrong. **Lesson: check every
+table against its CSV, not just the ones a change is expected to touch —
+partial updates leave internally inconsistent documents that read fine.**
+*Net effect*: the argument got stronger. All three econometric models pass at
+99%; all three ML-based models fail.
+
+**RESOLVED (2026-09-08) as a write-up risk, but keep reading it — the hybrid's
+tail-calibration cost is the headline RQ2 finding, and it must not get written
+up as a win.** §5.4 and the Conclusions now state the two-sided result
+explicitly, and the abstract leads with it. This entry stays as the reference
+for *why* the wording is what it is; do not let a later edit soften it back
+into a clean-win narrative. The hybrid beats GJR-GARCH on MAE
 (−7.8%) and RMSE (−3.5%) and takes first place on both, which is an easy
 result to over-claim. It simultaneously **worsens QLIKE by 12.5%** and turns
 GJR-GARCH's comfortable 99% Kupiec pass (p=0.6754, 10 violations) into a
@@ -124,16 +145,122 @@ shifts regime between training and deployment. Note also that **GJR-GARCH
 alone still has the best 99% calibration of any model (p=0.6754)** — neither
 hybrid variant beats it there.
 
-**[act now] No significance testing on model comparisons yet.** The
-econometric table (GJR-GARCH < GARCH < EWMA on MAE/RMSE/QLIKE) shows ranked
-numbers but not whether the differences are statistically meaningful. A
-Diebold-Mariano test is the standard tool for this. Cheap to add, and it's
-exactly the kind of "diagnostics and robustness" the TFM guide's evaluation
-checklist asks for. See backlog — do this once all models (econometric + ML
-+ hybrid) are in, so it's one pairwise comparison pass instead of three.
-Per-date forecasts for all five current models are now persisted in
-`results/tables/forecasts_all_models.csv`, so this is unblocked whenever
-it's picked up -- no need to re-run walk-forward to get there.
+**RESOLVED (2026-08-18) — Diebold-Mariano built and run**
+(`src/diebold_mariano.py`, `results/tables/diebold_mariano.csv`). Scoped to the
+two comparisons where the raw numbers do not settle the ranking: GJR-GARCH vs.
+Random Forest and GJR-GARCH vs. Hybrid (symmetric), each on all three reported
+losses. **Newey-West HAC (Bartlett) at 4 lags = h-1**, never the naive i.i.d.
+variance — the 5-day horizon with daily forecasts makes consecutive loss
+differentials share four of five underlying returns. The HAC implementation was
+validated against `statsmodels` OLS-on-a-constant with HAC covariance and
+matches to 1e-10 at every lag 0-8.
+**The correction is not cosmetic**: GJR-GARCH vs. RF on RMSE moves p=0.0543 ->
+0.2147, and GJR-GARCH vs. Hybrid on RMSE moves p=0.0542 -> 0.1627. Under an
+i.i.d. assumption both would have read as borderline significant; they are not.
+**What it settles, and this constrains the write-up:**
+- Random Forest's MAE win over GJR-GARCH is **not significant (p=0.9098)** —
+  the 0.4% gap is noise. Do not present "RF has the lowest MAE" as a finding.
+- GJR-GARCH beats RF on QLIKE **significantly (p=0.0156)**.
+- The hybrid's MAE gain over GJR-GARCH **is significant (p=0.0050)**; its RMSE
+  gain is **not (p=0.1627)**.
+- GJR-GARCH beats the hybrid on QLIKE **significantly (p=0.0290)**.
+Harvey-Leybourne-Newbold small-sample correction agrees with every verdict.
+
+**RESOLVED (2026-09-08) — Gunnarsson et al. (2024) re-attributed to the
+verbatim abstract claims.** The Literature Review now says the review reports
+ML methods are generally effective while econometric models remain comparable,
+and identifies hybrid specifications as a promising direction — both taken
+straight from the abstract, both verifiable without the full text. The
+unverifiable leakage/overfitting claim is gone. Original diagnosis kept below
+for the record.
+
+<details><summary>Original entry (2026-08-18)</summary>
+
+**Gunnarsson et al. (2024) attribution is UNCONFIRMED and probably
+wrong.** The Literature Review says the review "highlight[s] two recurring
+methodological concerns: the risk of data leakage ... and the tendency of
+flexible models to overfit in relatively short financial samples."
+Checked 2026-08-18. Full text could not be obtained (ScienceDirect 403s; hybrid
+OA but Unpaywall, Semantic Scholar and the NTNU Open repository expose no PDF),
+so this is NOT a confirmed refutation. But the verbatim abstract mentions
+neither data leakage, look-ahead bias, nor overfitting, and the paper's three
+stated aims are: whether ML beats econometric models, how widespread
+explainable AI is, and future research directions. The "data leakage" material
+that web search surfaces alongside it belongs to a *different* paper -- a 2025
+Computational Economics critical review (DOI 10.1007/s10614-025-11172-z) --
+which is very likely the source of the confusion.
+**Better-sourced alternative, verbatim from the abstract**: the review reports
+that "traditional econometric models are still highly relevant, commonly
+yielding similar results as more advanced ML and AI models" (supports the
+neutral-comparison framing) and that "a promising area of research is the use
+of hybrid models, combining machine learning and econometric models" (directly
+motivates this thesis's hybrid extension). Both are stronger and verifiable.
+Either re-attribute to these, or verify the leakage/overfitting claim against
+the full text via UNED library access before keeping it.
+
+</details>
+
+**RESOLVED (2026-09-08) — Misra et al. (2025) restated and labelled.** The
+Literature Review now reports what the paper actually finds (both ML models
+outperform GARCH substantially on R², RMSE and MAPE), calls it a working paper
+rather than a peer-reviewed study, and uses it as a *contrast* with this
+thesis's own result rather than as false agreement — with the
+criterion-dependence point carried by Poon and Granger (2003), which genuinely
+makes it. `references.bib` carries `note = {Working paper; not peer reviewed}`.
+Original diagnosis kept below for the record.
+
+<details><summary>Original entry (2026-08-18)</summary>
+
+**Misra et al. (2025) is MISATTRIBUTED in the Literature Review, and
+it is not peer reviewed.** Verified 2026-08-18 against SSRN and Crossref while
+building `references.bib`. Two separate problems:
+1. *The claim does not match the source.* The thesis says the paper finds "the
+   relative ranking of models is sensitive to the forecast horizon and
+   evaluation criterion used", and the Results section leans on it again
+   ("consistent with Misra et al. (2025), who similarly report that the
+   relative ranking ... depends on the evaluation criterion"). The paper
+   reports the opposite shape of result: both ML models **substantially
+   outperform** GARCH, with LSTM strongest (R2 = 0.962, MAPE = 0.066). It does
+   not report criterion-dependence as a finding. As written the thesis is
+   citing a source for a claim it does not make, in support of the thesis's
+   own "no single model dominates" framing.
+2. *Status.* It is an SSRN working paper (Crossref type `posted-content`,
+   DOI 10.2139/ssrn.5595710), authored by Columbia University students, not a
+   peer-reviewed journal article. Fine to cite if labelled as a working paper;
+   not fine to present as an established comparative study.
+**Fix**: either restate what the paper actually finds (and note this thesis
+reaches a different conclusion, which is a more interesting contrast than
+false agreement), or drop it and carry the criterion-dependence point on
+Poon and Granger (2003), which genuinely does make it. Do NOT leave the
+current sentence standing.
+
+</details>
+
+**[act now] Overleaf holds a STALE copy of `forecast_error_test.pdf`, and
+figures are the one thing the repo cannot keep in sync for you.** Found
+2026-09-08 by diffing the Overleaf export against `results/figures/`. The
+Overleaf copy annotates the 2 April 2025 peak as **+0.583**; the current figure
+annotates **+0.730**, which is what the (correct) prose in the document says.
+The Overleaf plot is drawn from pre-walk-forward-fix XGBoost forecasts.
+`returns_timeseries.pdf` was content-identical, and `xgboost_tree_example.pdf`
+was absent from the export so could not be compared.
+All three committed figures were re-verified on 2026-09-08 as byte-identical
+(content streams) to what `src/figures.py` regenerates from current data, and
+the tree figure splits on `today_sq_return` / `hist_vol_*d`, confirming
+post-fix features.
+**Action: upload all three of `results/figures/*.pdf` to Overleaf, replacing
+what is there.** The `.tex` includes them by bare filename, so nothing in the
+repo can detect or correct a stale copy on Overleaf — this has to be done by
+hand, and re-done every time the figures are regenerated.
+
+**RESOLVED (2026-09-08) — DM code and results are now tracked.**
+`src/diebold_mariano.py` and `results/tables/diebold_mariano.csv` sat untracked
+from 2026-08-18 until 2026-09-08, so Table 12 and §5.5 of the thesis — the
+section carrying its only statistically confirmed result — had no code or
+output in the repository at all, while the document claimed everything was
+reproducible from it. Both committed. **Watch for this shape of problem
+generally**: a result that exists only in a working directory is not a result
+an evaluator can check.
 
 **[watch] Gaussian VaR underestimates tail risk.** Parametric Gaussian VaR
 is the agreed baseline (fast, consistent across models, easy to defend) but
@@ -198,6 +325,10 @@ project — the raw data in `data/raw/` should be treated as final. Confirm
 `data_pipeline.py` isn't being re-run unnecessarily (e.g. as part of a
 larger "run everything" script) close to the deadline, when a rate-limit
 delay would be most costly.
+*Mitigated 2026-09-08*: the rewritten README documents the reproduction order
+with step 1 explicitly marked "in normal use, skip this step", and says why.
+There is no "run everything" script to trip over. Downgrade to `[watch]` unless
+someone adds one.
 
 **[watch] Recurring Excel file-lock friction (CSV open while Claude Code
 writes it).** Minor, but has happened twice and will keep happening if the
@@ -254,14 +385,11 @@ plan). Revisit this list before making that call, not after.
 
 ## Future extensions backlog
 
-**[do now — now UNBLOCKED] Diebold-Mariano test for pairwise model
-comparison.** Directly strengthens the core Results section rather than being
-a bolt-on. The precondition (all models through the same walk-forward
-harness) is met as of 2026-08-18: all six, hybrid included, are in
-`results/tables/forecasts_all_models.csv`, so this is one pairwise pass with
-no walk-forward re-run needed. Two gaps it would now settle: Random Forest
-beats GJR-GARCH on MAE by only 0.4%, and the hybrid beats GJR-GARCH on RMSE
-by 3.5% while losing 12.5% on QLIKE — neither is obviously significant.
+**[DONE 2026-08-18] Diebold-Mariano test for pairwise model comparison.**
+Built and run; see the resolved risk entry above for the results and what they
+constrain. Scoped to two pairs by instruction; extending it to the full
+pairwise matrix across all seven models would be cheap (the per-date forecasts
+are already persisted) if the write-up ever needs it.
 
 **[if time permits] Student-t (or another fat-tailed) VaR as a robustness
 check alongside the Gaussian baseline.** Already flagged as optional in

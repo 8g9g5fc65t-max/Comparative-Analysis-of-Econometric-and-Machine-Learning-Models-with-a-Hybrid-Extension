@@ -146,6 +146,16 @@ Order: data pipeline → walk-forward engine → econometric models → ML model
   squaring vol forecasts before computing QLIKE is an easy silent bug.
 - **Backtesting**: Kupiec test (unconditional coverage) + Christoffersen
   test (independence / conditional coverage) for VaR. ES backtest per above.
+- **Diebold-Mariano must use a HAC variance estimator, never the naive i.i.d.
+  one** (`src/diebold_mariano.py`). Forecasts are daily over a 5-day horizon,
+  so consecutive loss differentials share four of five underlying returns and
+  are mechanically autocorrelated — the same artifact that already invalidated
+  a full-sample Christoffersen reading. Headline numbers use **Newey-West
+  (Bartlett kernel) at 4 lags = h−1**; lag sensitivity q=0..4 is reported
+  alongside, q=0 being exactly the i.i.d. case.
+  *Why this is spelled out:* it is not cosmetic. Two of the six comparisons
+  sit at p≈0.054 under i.i.d. and move to p=0.16–0.21 under HAC — i.i.d. would
+  have manufactured two borderline-significant results that are not there.
 
 ## Models
 - Econometric: EWMA (benchmark), GARCH(1,1), GJR-GARCH (asymmetry).
@@ -181,11 +191,13 @@ tfm-volatility-forecasting/
 │   ├── backtesting.py
 │   ├── descriptive_stats.py
 │   ├── quantile_selection.py
+│   ├── diebold_mariano.py
 │   └── figures.py
 ├── results/{tables,figures}/
+├── thesis/{Thesis.tex, references.bib}
 └── docs/{ai_usage_log.md, risks_and_roadmap.md, data_provenance.md}
 ```
-No `thesis/` directory — the LaTeX lives in Overleaf (see "Current status").
+`thesis/` holds the LaTeX source, mirrored in Overleaf (see "Current status").
 
 ## Conventions
 - Python, fixed random seeds wherever relevant.
@@ -221,12 +233,28 @@ backtesting (`src/backtesting.py`) are built and run in
 Dev environment moved to Python 3.11 (see `requirements.txt`). See README.md
 for how to run things.
 
-**Thesis document lives in Overleaf, NOT in this repo.** `thesis/` was deleted
-on 2026-08-13 (recoverable from git history — it was committed in `e376036`).
-Do not recreate it. When the write-up needs changing, **output the LaTeX in
-chat** for the author to paste into Overleaf. The draft there covers
-Introduction, Literature Review, Data, Methodology, Results and Conclusions,
-with the hybrid-model subsection in future tense and no bibliography yet.
+**The thesis LaTeX is BACK in the repo (2026-09-08) and is the working copy.**
+`thesis/Thesis.tex` + `thesis/references.bib`, restored from the Overleaf
+export and then corrected in place. Overleaf is still where the author builds
+and submits, so the two are **mirrors that must be kept in sync**: edit
+`thesis/Thesis.tex` here, verify it compiles, and tell the author to paste it
+into Overleaf — do not silently let the two diverge. (Earlier guidance said the
+repo had no `thesis/` and that LaTeX should only be output in chat. That is
+obsolete.)
+
+The document is complete: title page, abstract, keywords, ToC/LoT/LoF,
+Introduction, Literature Review, Data (incl. descriptive statistics),
+Methodology, Results (incl. hybrid, quantile variant and Diebold-Mariano),
+Conclusions, Directions for Future Research, Declaration of AI Use, and a
+working bibliography. It compiles clean: 31 pages, no undefined references or
+citations, **no overfull boxes**.
+
+Three placeholders remain for the author, marked in the source: tutor name,
+submission date, repository URL.
+
+The figures are referenced by bare filename, so `results/figures/*.pdf` must be
+uploaded to Overleaf whenever they are regenerated. A local build needs them
+alongside the `.tex` — see README.md.
 
 **2026-08-13 — three correctness fixes, and what they invalidated.** Prediction
 freshness, future labels, and feature timing (all three now in "Methodology
@@ -239,14 +267,13 @@ RQ1 result:
   again — but with RF, not XGBoost, as the ML model that wins a metric.
 - XGBoost wins nothing: 3rd on MAE, 4th on RMSE and QLIKE, and it is the
   model whose 99% VaR coverage fails hardest.
-`results/tables/*` and `results/figures/*` are regenerated and current. The
-Overleaf Results and Conclusions still describe the *original* (pre-fix)
-numbers and need rewriting against the committed tables.
+`results/tables/*` and `results/figures/*` are regenerated and current.
+(The write-up was rewritten against these numbers over 2026-08-18/09-08; the
+last stale values were cleared on 2026-09-08 — see below.)
 
-A full audit on 2026-08-13 also found ~30 further issues (missing
-`references.bib`, an undefined `\ref{sec:dm}`, two overfull tables,
-README/reproducibility gaps). Only the three correctness bugs and one
-figure-path typo were fixed; the rest is unactioned.
+The rest of the 2026-08-13 audit list (missing `references.bib`, an undefined
+`\ref{sec:dm}`, overfull tables, README/reproducibility gaps) is **now
+actioned** as of 2026-09-08.
 
 **2026-08-18 — hybrid model built; the RQ2 answer is genuinely split.** The
 hybrid **improves MAE (−7.8%) and RMSE (−3.5%) over GJR-GARCH but worsens
@@ -284,6 +311,57 @@ overshot severely and failed in the opposite direction:**
 hybrid variant beats it on tail calibration.** Keep the negative result — it is
 a real finding about objective-alignment not being sufficient when the
 residual distribution is regime-dependent.
+
+**2026-08-18 — Diebold-Mariano done (`results/tables/diebold_mariano.csv`),
+and it changes what can be claimed.** Two pairs × three losses, Newey-West
+HAC at 4 lags:
+- **Random Forest's MAE win over GJR-GARCH is not significant — p=0.9098.**
+  The 0.4% gap is noise. "RF has the lowest MAE" is a ranking, not a finding,
+  and the write-up must not lean on it.
+- GJR-GARCH's QLIKE advantage over Random Forest **is** significant (p=0.0156).
+- The symmetric hybrid's MAE improvement over GJR-GARCH **is** significant
+  (p=0.0050); its RMSE improvement is **not** (p=0.1627).
+- GJR-GARCH's QLIKE advantage over the hybrid **is** significant (p=0.0290).
+So the defensible summary is: GJR-GARCH is significantly better on QLIKE than
+both challengers; the hybrid is significantly better on MAE; everything else
+is a tie. Harvey-Leybourne-Newbold small-sample correction agrees with every
+verdict (n=874, so it barely moves).
+
+**Bibliography verified 2026-08-18, both problems fixed.** All eight Literature
+Review sources checked against Crossref/publisher records. Two attribution
+problems were found (Gunnarsson et al. 2024, Misra et al. 2025) and **both are
+now corrected in the text**: Gunnarsson is cited for claims verbatim from its
+abstract, and Misra is described as reporting what it actually reports (ML
+beating GARCH substantially) and labelled a working paper. `references.bib`
+carries `note = {Working paper; not peer reviewed}` on the Misra entry. Nothing
+outstanding here.
+
+**2026-09-08 — final pre-submission audit. One real error found, in the Kupiec
+table.** Everything else in the document was re-verified against the committed
+CSVs and matched, and all three CSVs were re-confirmed to reproduce from source
+(`backtest_summary.csv`, `diebold_mariano.csv`, `model_comparison.csv`).
+The error: the four **Random Forest and XGBoost rows of the Kupiec table were
+stale pre-feature-timing-fix values**, and one changed a verdict.
+- **Random Forest at 99% FAILS: 16 violations, 1.83%, LR 4.891, p=0.0270.** The
+  document had claimed p=0.0535, "passing only marginally". It does not pass.
+- XGBoost at 99% is 17 violations, LR 6.179, **p=0.0129** (the document had
+  2.06% / 7.588 / 0.0059). This also removed a self-contradiction: the text
+  already stated the hybrid matched XGBoost's count and statistics exactly,
+  while the printed XGBoost row disagreed with it.
+- The 95% rows for both models were also wrong, though the "all pass at 95%"
+  verdict survives.
+**Net effect on the argument: it got stronger.** All three econometric models
+pass at 99%; all three ML-based models (RF, XGBoost, hybrid) fail. The
+"systematic tail-calibration weakness of the tree-based approach" claim no
+longer rests on one failure plus one near-miss.
+Also fixed in the same pass: an orphaned Conclusions paragraph sitting at the
+end of the Literature Review, three cross-references pointing at methodology
+sections rather than the evidence, all four overfull tables (the
+Diebold-Mariano table's last column header was being cut off the page edge),
+`hyperref` link boxes, a missing descriptive-statistics table, and the title
+page. `src/diebold_mariano.py` and `results/tables/diebold_mariano.csv` were
+untracked until this date — Table 12 had no code in the repo — and are now
+committed.
 
 ## Related docs
 `docs/risks_and_roadmap.md` tracks known risks/watch-items and a prioritized
