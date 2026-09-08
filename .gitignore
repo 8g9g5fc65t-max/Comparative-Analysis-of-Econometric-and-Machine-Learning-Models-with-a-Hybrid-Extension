@@ -9,3 +9,8 @@ venv/
 *.out
 *.toc
 *.synctex.gz
+*.lot
+*.lof
+*.bbl
+*.blg
+thesis/Thesis.pdf
