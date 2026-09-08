@@ -1,0 +1,1139 @@
+\documentclass[12pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{geometry}
+\usepackage{setspace}
+\usepackage{natbib}
+\usepackage{hyperref}
+
+\geometry{margin=2.5cm}
+\onehalfspacing
+
+\title{
+Dynamic Volatility and Market Risk Forecasting:
+A Comparative Analysis of Econometric and Machine Learning Models
+with a Hybrid Extension
+}
+
+\author{Alejandro Basabe Oleaga}
+
+\date{2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This thesis compares econometric (EWMA, GARCH, GJR-GARCH), machine learning (Random Forest,
+XGBoost), and hybrid volatility-forecasting models for the S\&P 500 (2011--2026), asking not only
+which model forecasts most accurately but whether that accuracy translates into better
+market-risk measurement.
+
+Using a strictly out-of-sample walk-forward framework with Value-at-Risk backtesting, machine
+learning is found to offer no statistically significant forecasting advantage over the
+asymmetric GJR-GARCH model, and performs significantly worse under a loss function that
+specifically penalises underprediction of risk. A hybrid model combining GJR-GARCH with a
+machine-learning residual correction achieves the most accurate point forecasts of any model
+considered, a statistically confirmed result -- yet it fails Value-at-Risk backtesting at the
+99\% confidence level exactly as badly as the machine learning models its correction is drawn
+from. This disconnect traces to a specific mechanism: the correction learns a near-uniform
+downward adjustment that improves average accuracy while shading forecasts down hardest on
+precisely the days that matter most for risk. A subsequent attempt to correct this directly, by
+training the residual model with a loss function aligned with the definition of Value at Risk
+itself, fails for a different and more general reason: a correction calibrated on a historically
+volatile period does not transfer to a calmer one.
+
+The central finding of this thesis is that improvements in standard forecast-accuracy metrics do
+not necessarily translate into improvements in market-risk measurement, and can coincide with a
+statistically confirmed deterioration in risk calibration. GJR-GARCH alone remains the
+best-calibrated model for market-risk purposes throughout this thesis, and no combination or
+correction attempted here improves on it in that respect.
+\end{abstract}
+
+\noindent\textbf{Keywords:} GARCH; GJR-GARCH; volatility forecasting; machine learning;
+Value at Risk; hybrid models
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+% ============================================================
+\subsection{Motivation}
+% ============================================================
+Financial market volatility is an important component of quantitative finance and risk management.
+Accurate volatility forecasts are relevant for the measurement of market risk, portfolio management
+and financial decision-making. Traditional econometric models, particularly models from the ARCH
+and GARCH families, have been widely used to model the time-varying nature of financial volatility.
+
+In recent years, machine learning methods have become increasingly relevant in financial forecasting.
+Their ability to model nonlinear relationships provides a potential alternative to traditional
+econometric approaches. However, greater predictive flexibility does not necessarily imply better
+out-of-sample forecasts or more accurate measures of financial risk.
+
+This work therefore compares traditional econometric volatility models with machine learning models
+using a common out-of-sample forecasting framework. The analysis is subsequently extended to a
+hybrid model combining econometric and machine learning approaches. The final objective is to
+determine whether improvements in volatility forecasting translate into improvements in market-risk
+measurement.
+% ============================================================
+\subsection{Research Question}
+% ============================================================
+This thesis addresses the two following questions:
+
+\begin{enumerate}
+    \item Can machine-learning methods improve the out-of-sample forecasting of financial market volatility compared with traditional econometric models, and does any improvement translate into more accurate market-risk measures?
+    \item Does combining GARCH and machine learning provide additional forecasting value relative to the individual models?
+\end{enumerate}
+% ============================================================
+\subsection{Objectives}
+% ============================================================
+The main objective of this work is to evaluate whether machine-learning models provide improvements
+in the out-of-sample forecasting of financial market volatility relative to traditional econometric
+models, and whether these differences translate into more accurate market-risk measures.
+
+A secondary objective is to develop a hybrid GARCH--machine learning model and determine whether
+combining the two approaches provides additional forecasting value compared with the corresponding
+individual models.
+
+The objective is not to assume that machine learning models are superior, but to evaluate their
+performance under a common and strictly out-of-sample framework.
+% ============================================================
+\subsection{Contributions}
+% ============================================================
+The main contribution of this work is an empirical comparison between traditional econometric
+volatility models and machine learning models using the same financial data, forecasting horizon
+and out-of-sample evaluation criteria.
+
+The analysis is complemented by a market-risk application through the estimation and backtesting
+of Value at Risk (VaR) and Expected Shortfall (ES). Finally, a hybrid GARCH--machine learning model
+is developed to evaluate whether the combination of econometric and machine learning information
+provides an additional improvement in forecasting performance.
+% ============================================================
+\subsection{Structure of the Thesis}
+% ============================================================
+Following this introduction, the literature review presents the main theoretical and empirical
+references related to volatility modelling, machine learning forecasting, hybrid models and
+financial risk measurement.\\
+The data section describes the financial dataset, the construction of returns and the definition of the volatility forecasting target.\\
+The methodology section describes the econometric models, machine learning models, hybrid model, forecast evaluation criteria and market-risk backtesting procedures.\\
+The results section presents and compares the out-of-sample forecasting performance of the different models and analyses their implications for VaR and Expected Shortfall.\\
+Finally, the conclusions summarise the main findings and answer the research questions proposed at the beginning of the work.
+% ============================================================
+\section{Literature Review}
+% ============================================================
+The literature relevant to this thesis can be organised into four themes: the
+econometric foundations of volatility modelling, the measurement of market risk,
+the evaluation of volatility forecasts, and the more recent application of machine
+learning and hybrid approaches to the same problem.
+
+The econometric treatment of time-varying volatility originates with
+\citet{engle1982}, who introduced the ARCH model to capture the clustering of
+volatility observed in macroeconomic and financial time series.
+\citet{bollerslev1986} generalised this framework with the GARCH model, allowing
+conditional variance to depend on its own lagged values in addition to lagged
+squared shocks. Together these two papers established conditional
+heteroskedasticity models as the standard econometric benchmark for volatility
+forecasting, and GARCH(1,1) in particular remains difficult to outperform
+consistently in out-of-sample comparisons. This thesis extends the baseline GARCH
+specification with an asymmetric GJR-GARCH variant, motivated by the
+well-documented tendency of volatility to react more strongly to negative than to
+positive returns.
+
+Once volatility is forecast, it must be translated into a usable measure of
+market risk. \citet{jorion1997} formalised Value at Risk as an industry and
+regulatory benchmark, while \citet{artzner1999} showed that VaR lacks
+subadditivity and is therefore not a coherent risk measure, motivating the use of
+Expected Shortfall as a complementary, coherent alternative. This thesis follows
+that recommendation by reporting both VaR and Expected Shortfall rather than VaR
+alone.
+
+A separate strand of the literature addresses how volatility forecasts themselves
+should be evaluated. \citet{poon2003} review the difficulties inherent in this
+exercise, in particular the sensitivity of forecast rankings to the choice of
+realised-volatility proxy and evaluation loss function, and stress the importance
+of genuinely out-of-sample testing. This motivates the use of multiple loss
+functions (MAE, RMSE and QLIKE) in the present work rather than a single metric,
+since no individual measure is uniformly preferred.
+
+More recently, machine learning methods have been applied to volatility
+forecasting as an alternative to purely econometric specifications.
+\citet{gunnarsson2024} survey this literature and report that machine learning
+methods for volatility forecasting are generally effective, though traditional
+econometric models continue to perform comparably in many cases; they identify
+hybrid specifications, combining machine learning with econometric structure, as
+a particularly promising direction for future research --- the approach adopted
+later in this thesis's own hybrid extension. \citet{misra2025} provide a more
+direct comparison between GARCH, XGBoost and LSTM models for S\&P 500 volatility
+forecasting over 2018--2024 and report that both machine learning models
+outperform GARCH by a substantial margin on $R^2$, RMSE and MAPE. That
+comparison is, however, a working paper rather than a peer-reviewed study, and
+it evaluates forecasts only against symmetric accuracy criteria. Since
+\citet{poon2003} show that forecast rankings are themselves sensitive to the
+loss function chosen, results established on symmetric criteria alone do not
+settle whether machine learning also improves the risk-relevant properties of a
+forecast. That gap, and the absence of a uniform conclusion in favour of machine
+learning across this broader literature, motivates the neutral, criteria-driven
+comparison adopted in this thesis rather than an a priori assumption of
+superiority in either direction.
+
+A smaller body of work combines the two approaches directly.
+\citet{kartsonakis2021} compare standalone GARCH and neural network models
+against a hybrid specification for the Italian stock market and report gains
+from the hybrid approach, though without a fully out-of-sample evaluation
+matched across models. This result motivates the hybrid extension developed
+later in this thesis, in which a machine learning model is trained specifically
+on the residual information left unexplained by GARCH, rather than combined
+with it in an unstructured way.
+
+Taken together, this literature establishes GARCH-family models as the relevant
+econometric benchmark, VaR and Expected Shortfall as complementary risk measures,
+and highlights both the promise and the methodological pitfalls of applying
+machine learning to volatility forecasting. What remains comparatively unexplored
+is a single, strictly out-of-sample comparison that carries econometric,
+machine-learning and hybrid volatility forecasts through to their implications
+for backtested market-risk measures --- which is the gap this thesis addresses.
+This finding carries a practical implication beyond the specific models compared here.
+Selecting a volatility model on the basis of average point-forecast accuracy alone, without
+separately evaluating the risk measures built on top of it, risks adopting a model that appears
+superior on the criterion used to choose it while performing worse on the criterion that
+actually matters for risk management. The two should be assessed independently, using metrics
+matched to their eventual use, rather than assumed to move together.
+% ============================================================
+\section{Data}
+% ============================================================
+\subsection{Dataset}
+% ============================================================
+The analysis uses approximately fifteen years of daily S\&P 500 data, covering the period from
+January 2011 to 7 July 2026. Data is extracted using the \texttt{yfinance} package (ticker
+\texttt{\^{}GSPC}) and the end date is fixed at 7 July 2026 so that the dataset (and therefore all
+downstream results) remains identical across every re-run of the pipeline.
+
+The dataset contains daily Open, High, Low, Close and Volume observations. Adjusted closing prices
+are used for the calculation of daily returns; since the S\&P 500 is a price index rather than a
+total-return index, adjusted and unadjusted closing prices coincide, and no dividend adjustment is
+required at the index level.
+
+The raw data is cleaned by removing duplicate entries and any weekend dates accidentally included
+by the data source. Rather than deleting anomalous records -- such as days with missing information,
+zero trading volume, or extreme market swings -- the cleaning script preserves these rows and flags
+them for review, so that no information is silently discarded. Daily logarithmic returns are then
+calculated to prepare the data for modelling.
+
+Two flagged events were identified in the sample:
+
+\begin{itemize}
+    \item \textbf{16 March 2020} (log return $-12.8\%$): corresponds to the COVID-19 market crash
+    and reflects a genuine market event rather than a data error.
+    \item \textbf{24 May 2023} (zero trading volume): likely a data-provider reporting quirk; the
+    price data for this day appears otherwise consistent.
+\end{itemize}
+
+After cleaning, the dataset comprises 3,899 daily observations.
+% ============================================================
+\subsection{Returns}
+% ============================================================
+Daily logarithmic returns are calculated as
+
+\begin{equation}
+r_t = \ln\left(\frac{P_t}{P_{t-1}}\right),
+\end{equation}
+where $P_t$ represents the adjusted closing price of the S\&P 500 on day $t$. Figure~\ref{fig:returns_timeseries}
+plots the resulting series over the full sample.
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{returns_timeseries.pdf}
+\caption{Daily logarithmic returns of the S\&P 500, 2011--2026. The 16 March 2020 COVID-19 crash is
+annotated; periods of high and low volatility cluster together rather than occurring randomly,
+motivating the use of conditional heteroskedasticity models.}
+\label{fig:returns_timeseries}
+\end{figure}
+
+% ============================================================
+\subsection{Volatility Target}\label{sec:target}
+% ============================================================
+The dependent variable for the forecasting exercise is a five-day close-to-close realised
+volatility measure.
+
+At each date $t$, the realised variance over the following five trading days is calculated as
+
+\begin{equation}
+RV_{t+1:t+5} =
+\sum_{i=1}^{5} r_{t+i}^{2}.
+\end{equation}
+
+The corresponding realised volatility is defined as
+
+\begin{equation}
+\sqrt{\frac{252}{5}RV_{t+1:t+5}},
+\end{equation}
+
+where the factor $252$ annualises the volatility.\\
+This measure provides a less noisy forecasting target than the squared return of a single trading
+day while allowing the analysis to be performed entirely using daily data.
+% ============================================================
+\section{Methodology}
+% ============================================================
+The methodology is designed to provide a common and strictly out-of-sample framework for comparing
+econometric and machine learning approaches.
+
+All models forecast the same five-day volatility target using only information available at
+the forecasting date.
+
+\subsection{Out-of-Sample Evaluation}\label{sec:oos}
+
+The dataset is divided chronologically into a training period and an out-of-sample testing period:
+observations from 3 January 2011 to 30 December 2022 (3,020 observations) are used for model
+development, and observations from 3 January 2023 to 7 July 2026 (879 observations) are reserved
+for the final out-of-sample evaluation. Because the five-day-ahead target requires five subsequent
+trading days of returns, the final five observations of the training period lack a valid label;
+these are excluded from the estimation of any model trained directly on the target variable (3,015
+usable training examples for such models), while models that require only return data, such as the
+econometric models, are unaffected.
+
+A walk-forward expanding-window procedure is used rather than a random train-test split. At
+each forecasting date, the model is estimated using information available up to that date and
+subsequently produces a forecast for the following five trading days.
+
+This procedure avoids look-ahead bias and provides a realistic assessment of the models' forecasting
+performance.
+
+\subsection{Econometric Models}
+
+Three econometric approaches are considered.
+
+\subsubsection{EWMA}
+
+Exponentially Weighted Moving Average volatility is used as a simple benchmark, with decay
+parameter $\lambda = 0.94$, the standard convention introduced by the RiskMetrics methodology. EWMA
+gives greater weight to recent observations and provides a straightforward representation of
+volatility clustering.
+
+\subsubsection{GARCH(1,1)}
+
+The standard GARCH(1,1) model is used as the main symmetric econometric benchmark. Its
+conditional variance is specified as
+
+\begin{equation}
+\sigma_t^2 =
+\omega +
+\alpha \epsilon_{t-1}^2 +
+\beta \sigma_{t-1}^2,
+\end{equation}
+
+where $\omega$, $\alpha$ and $\beta$ are model parameters.
+
+\subsubsection{GJR-GARCH}
+
+A GJR-GARCH model is included to account for potential asymmetry in the response of volatility
+to positive and negative returns. This allows the analysis to determine whether explicitly modelling
+asymmetric volatility improves forecasting performance relative to the standard GARCH model.
+
+For comparability, all three econometric models are converted from a one-day-ahead conditional
+variance forecast into the same five-day annualised volatility scale as the forecasting target
+(Section~\ref{sec:target}), using an identical annualisation procedure applied uniformly across
+models. GARCH(1,1) and GJR-GARCH produce a full five-step-ahead conditional variance path, which is
+allowed to mean-revert towards its long-run level over the forecast horizon. EWMA, which has no
+mean-reversion mechanism, instead applies its single-step variance forecast uniformly across all
+five days -- the standard treatment for EWMA over a multi-day horizon. The three models therefore
+differ not only in their conditional-variance dynamics but also in how that dynamic is extended
+across the forecast horizon, a distinction worth bearing in mind when interpreting differences in
+forecasting accuracy.
+
+\subsection{Machine Learning Models}\label{sec:ml_features}
+
+Two machine learning algorithms are considered: Random Forest and XGBoost.
+
+These models are selected because they can capture nonlinear relationships while remaining
+substantially simpler to implement and interpret than more complex deep-learning architectures.
+
+To keep the comparison against the econometric models uncontaminated, the machine learning models
+used to answer Research Question 1 are trained using a limited set of six features constructed
+exclusively from returns, without reference to any econometric model's own output:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Feature} & \textbf{Definition} \\
+\midrule
+Same-day return & $r_t$ \\
+Absolute return & $|r_t|$ \\
+Squared return & $r_t^2$ \\
+5-day historical volatility & $\sigma_{5,t}$ \\
+10-day historical volatility & $\sigma_{10,t}$ \\
+20-day historical volatility & $\sigma_{20,t}$ \\
+\bottomrule
+\end{tabular}
+\caption{Features used by the machine learning models for the Research Question 1 comparison.}
+\end{table}
+
+Table~\ref{tab:ml_hyperparams} reports the hyperparameters used for both models. Both are configured
+conservatively given the relatively short and autocorrelated financial sample used in this thesis.
+Restricting tree depth and, for Random Forest, requiring a minimum number of observations per leaf
+prevent either model from fitting rules to a small number of unusual days rather than broader market
+patterns. XGBoost builds trees sequentially, with each new tree correcting the errors of the
+previous one; a low learning rate (0.05) limits how aggressively the model adapts to any single
+tree's errors, while subsampling 80\% of rows and features per tree reduces overreliance on any
+particular period or feature. These choices reflect a deliberately conservative configuration, given
+the relatively short and autocorrelated financial sample used in this thesis and the general risk of
+overfitting when flexible models are applied to limited historical data. A fixed random seed (42)
+ensures the reported results are exactly reproducible.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Hyperparameter} & \textbf{Random Forest} & \textbf{XGBoost} \\
+\midrule
+Number of trees        & 200 & 200  \\
+Maximum depth          & 6   & 4    \\
+Min. samples per leaf  & 5   & --   \\
+Learning rate          & --  & 0.05 \\
+Row subsample          & --  & 0.8  \\
+Column subsample       & --  & 0.8  \\
+Random seed            & 42  & 42   \\
+\bottomrule
+\end{tabular}
+\caption{Hyperparameters used for the machine learning models.}
+\label{tab:ml_hyperparams}
+\end{table}
+
+Figure~\ref{fig:xgb_tree} shows a single tree from an illustrative XGBoost fit, using the same
+hyperparameters and the six-feature set above, trained once on the full training period for
+visualisation purposes only and kept separate from the walk-forward evaluation used everywhere else
+in this thesis.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{xgboost_tree_example.pdf}
+\caption{A single tree (index 0 of 200) from an illustrative XGBoost fit on the training period.
+Leaf values are that tree's additive contribution to the overall forecast; the final prediction sums
+the contributions of all 200 trees, each individually small given the 0.05 learning rate.}
+\label{fig:xgb_tree}
+\end{figure}
+
+Including the GARCH or EWMA forecasts as features at this stage would make the comparison circular:
+any advantage attributed to machine learning could simply reflect access to the econometric model's
+own output rather than a genuinely different source of predictive information. GARCH- and
+EWMA-informed features are therefore introduced later, and only within the hybrid model
+(Section~\ref{sec:hybrid}), where the machine learning component is explicitly tasked with modelling
+the residual information left unexplained by GARCH rather than competing against it on equal terms.
+
+All features are constructed exclusively from information available at the forecasting date, and
+particular attention is paid to preventing data leakage during feature construction and model
+training. The same features and forecasting target are used for both Random Forest and XGBoost to
+ensure a homogeneous comparison.
+
+Consistent with the walk-forward procedure described in Section~\ref{sec:oos}, the econometric
+models are re-estimated daily, while Random Forest and XGBoost are re-trained weekly. Daily
+re-training is inexpensive for the econometric models but unnecessary for the machine learning
+models, whose more expensive fitting procedure does not require daily updating to remain reflective
+of current market conditions.
+
+\subsection{Volatility Forecast Evaluation}
+% ============================================================
+The volatility forecasts produced by all models are evaluated against the same five-day realised
+volatility target. \\
+The main evaluation metrics include Mean Absolute Error (MAE), Root Mean Squared Error (RMSE)
+and the QLIKE loss function. MAE and RMSE are computed directly on the volatility scale:\\
+\begin{equation}
+\text{MAE} = \frac{1}{N}\sum_{t=1}^{N} \left| \hat{\sigma}_t - \sigma_t \right|,
+\qquad
+\text{RMSE} = \sqrt{\frac{1}{N}\sum_{t=1}^{N} \left( \hat{\sigma}_t - \sigma_t \right)^2},
+\end{equation}
+where $\sigma_t$ is the realised volatility target and $\hat{\sigma}_t$ the model forecast.
+QLIKE, by contrast, is defined on the variance scale and penalises underprediction of risk more
+heavily than overprediction of the same magnitude, which makes it particularly informative in a
+risk-management context:
+\begin{equation}
+\text{QLIKE} = \frac{1}{N}\sum_{t=1}^{N} \left[ \frac{\sigma_t^2}{\hat{\sigma}_t^2} - \ln\left(\frac{\sigma_t^2}{\hat{\sigma}_t^2}\right) - 1 \right].
+\end{equation}
+
+These three measures are complementary rather than interchangeable, and each answers a slightly
+different question about forecast quality. MAE expresses the average forecasting error directly in
+percentage points of annualised volatility: a MAE of $0.049$, for example, means that a model's
+forecasts deviate from realised volatility by approximately 4.9 percentage points on an average day.
+RMSE is expressed on the same scale but squares errors before averaging, so it is more heavily
+influenced by occasional large misses than by many small ones; a model whose RMSE is noticeably
+higher than its MAE is one that is usually close to the target but occasionally misses it by a wide
+margin, which is the typical pattern for volatility forecasts around sudden market moves. QLIKE
+cannot be read in percentage-point terms, since it is a ratio-based loss defined on variance rather
+than volatility, but its economic interpretation is more directly relevant to risk management: it
+penalises a forecast that understates risk far more severely than one that overstates it by the same
+amount. This asymmetry matters because, in a risk-management context, telling a decision-maker that
+volatility will remain low shortly before a spike is a materially more costly error than being overly
+cautious ahead of a calm period -- a distinction that MAE and RMSE, which treat over- and
+under-prediction symmetrically, do not capture.
+
+Reporting all three measures avoids relying on a single loss function, since no individual metric is
+uniformly preferred for evaluating volatility forecasts \citep{poon2003}. These measures provide
+complementary information about the accuracy of the forecasts and allow the performance of the
+econometric, machine learning and hybrid models to be compared under the same criteria.
+
+\subsection{Hybrid Model}\label{sec:hybrid}
+
+The hybrid model combines the strongest econometric model considered in this thesis, GJR-GARCH,
+with a machine learning component trained specifically to correct its forecasting errors. The
+purpose of this design is not to combine model predictions mechanically, but to give each component
+a clearly defined role: GJR-GARCH provides the baseline econometric volatility forecast, and the
+machine learning component is trained to predict the residual information left unexplained by that
+baseline.
+
+The hybrid forecast takes the form
+
+\begin{equation}
+\hat{\sigma}^{Hybrid}_{t+1:t+5}
+=
+\hat{\sigma}^{GJR}_{t+1:t+5}
++
+\hat{e}^{ML}_{t+1:t+5},
+\end{equation}
+
+where $\hat{\sigma}^{GJR}_{t+1:t+5}$ is GJR-GARCH's own five-day annualised volatility forecast and
+$\hat{e}^{ML}_{t+1:t+5}$ is a machine learning correction trained to predict GJR-GARCH's forecasting
+error. GJR-GARCH is used as the baseline rather than the symmetric GARCH(1,1) model because it is
+the strongest-performing econometric model in this thesis (Section~\ref{sec:ml_comparison}), making
+it the more demanding and more informative benchmark for evaluating whether machine learning adds
+value on top of an already well-specified model.
+
+XGBoost is used as the residual-correction component rather than Random Forest. This choice is
+motivated by the structural similarity between gradient boosting and residual correction: XGBoost
+builds each successive tree specifically to correct the errors of the trees before it, which is
+mechanistically analogous to the task assigned to it here -- predicting the errors of a prior model
+-- whereas Random Forest has no equivalent structural relationship to residual fitting.
+
+The residual model is trained on the same six features used in the Research Question 1 comparison
+(Section~\ref{sec:ml_features}), together with GJR-GARCH's own current forecast as a seventh feature.
+Unlike in the Research Question 1 comparison, where including econometric model output as a feature
+would have made the comparison circular, using GJR-GARCH's forecast as an input here is precisely
+the point of a hybrid model: it allows the machine learning component to learn how GJR-GARCH's own
+errors relate to its own forecast level, rather than only to raw return information.
+
+Training residuals are obtained from a single GJR-GARCH fit on the full training period (2011--2022),
+rather than a full walk-forward re-estimation, since this component's econometric behaviour has
+already been separately validated (Section~\ref{sec:oos}) and does not need to be re-estimated here.
+The residual model is trained on these in-sample (feature, residual) pairs. During out-of-sample
+evaluation, the hybrid model reuses GJR-GARCH's already-validated walk-forward forecasts for
+2023--2026 rather than recomputing them, and the XGBoost residual component is re-trained weekly,
+consistent with the machine learning refit cadence used throughout this thesis. The hybrid model is
+evaluated using exactly the same out-of-sample procedure, evaluation metrics, and backtesting
+procedures as the individual models.
+
+Because these training residuals come from a single in-sample fit, they are likely to be somewhat
+smaller and less variable than the residuals GJR-GARCH actually produces out-of-sample. This is not
+a source of look-ahead bias, since every training-period date precedes the test window entirely, but
+it is a modelling simplification whose implications for the hybrid's calibration are discussed
+alongside the results in Section~\ref{sec:hybrid_results}.
+
+\subsection{Market Risk Measures}\label{sec:market_risk}
+
+The volatility forecasts are subsequently used to estimate market-risk measures.
+
+Value at Risk is calculated for the selected confidence levels using a common distributional
+assumption (parametric, Gaussian) across all models. Expected Shortfall is also calculated to
+measure the expected loss conditional on exceeding the VaR threshold.
+
+Using the same assumptions for all models ensures that differences in the resulting risk measures
+are primarily attributable to differences in the volatility forecasts rather than to differences in
+the risk-measurement methodology.
+
+\subsection{Backtesting}\label{sec:backtesting}
+
+The VaR forecasts are evaluated using standard backtesting procedures.
+
+The Kupiec test is used to evaluate unconditional coverage, assessing whether the observed
+frequency of VaR violations is consistent with the nominal confidence level.
+
+The Christoffersen test is used to evaluate the independence and conditional coverage of VaR
+violations.
+
+Both tests are formulated as hypothesis tests, and it is the failure to reject the null hypothesis
+that is desirable for a well-specified model. The Kupiec test's null hypothesis is that the observed
+proportion of VaR violations equals the nominal violation rate implied by the confidence level (e.g.
+exactly 5\% of test days for a 95\% VaR); a high likelihood-ratio (LR) statistic and correspondingly
+low $p$-value indicate that the violation rate is significantly too high or too low, and thus that
+the model is miscalibrated. The Christoffersen test's null hypothesis is instead that violations are
+independently distributed over time -- that a violation on one day does not make a violation on the
+following day more likely; rejecting this null indicates that violations cluster together in time,
+which is a more serious failure than an incorrect overall rate, since it implies the model performs
+poorly precisely during extended periods of market stress rather than failing unpredictably.
+Throughout this thesis, a $p$-value below the conventional 5\% threshold is treated as evidence
+against the corresponding null hypothesis.
+
+Because the volatility target and VaR forecasts in this thesis are constructed over a five-day
+horizon while forecasts are produced daily, consecutive VaR windows overlap and share up to four of
+their five underlying daily returns. This induces mechanical serial correlation in the violation
+series that is unrelated to model quality: a single large market move can register as a violation
+across several consecutive, overlapping forecast windows regardless of how well-specified the
+underlying volatility model is. The Christoffersen independence test is therefore applied primarily
+to a non-overlapping subsample of forecast dates, constructed so that no two consecutive observations
+share any underlying daily return; the full-sample result, which reflects this structural overlap
+rather than genuine violation clustering, is reported only as a secondary diagnostic.
+
+Expected Shortfall forecasts are subjected to a simple backtest comparing the average realised
+shortfall on violation days against the corresponding Expected Shortfall forecast.
+
+The purpose of the backtesting exercise is to determine whether differences in volatility forecasting
+accuracy translate into economically relevant differences in market-risk forecasting.
+
+\subsection{Implementation and Reproducibility}
+% ============================================================
+All models -- econometric, machine learning, and, subsequently, the hybrid specification -- share a
+common interface within the walk-forward procedure, so that every model is evaluated through
+identical code rather than model-specific logic that could introduce inconsistencies between
+families of models. Random Forest and XGBoost are both trained with a fixed random seed. An early
+diagnostic run revealed that parallelised training introduced small but non-negligible
+floating-point differences across otherwise identical XGBoost runs; XGBoost is therefore trained
+single-threaded to guarantee exactly reproducible results. Random Forest is deterministic under a
+fixed seed regardless of thread count, and is run single-threaded only to suppress excessive
+diagnostic warning output from the underlying library. Full implementation details are documented in
+the accompanying code repository, consistent with keeping the main document readable independently
+of the underlying code.
+
+\section{Results}
+% ============================================================
+\subsection{Econometric Model Comparison}
+% ============================================================
+Table~\ref{tab:econ_comparison} reports out-of-sample forecasting performance for the three
+econometric models over the test period (3 January 2023 to 7 July 2026, 874 valid observations
+after removing the tail rows for which the forward-looking target is undefined).
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & \textbf{MAE} & \textbf{RMSE} & \textbf{QLIKE} \\
+\midrule
+EWMA        & 0.04925 & 0.07656 & 0.43662 \\
+GARCH(1,1)  & 0.04763 & 0.07197 & 0.38670 \\
+GJR-GARCH   & 0.04358 & 0.06485 & 0.34217 \\
+\bottomrule
+\end{tabular}
+\caption{Out-of-sample forecasting performance of the econometric models, 2023--2026.}
+\label{tab:econ_comparison}
+\end{table}
+
+GJR-GARCH outperforms both GARCH(1,1) and EWMA on all three metrics simultaneously, with
+improvements ranging from approximately 8\% to 12\% over GARCH(1,1) and 12\% to 22\% over EWMA
+depending on the metric. The advantage is largest under QLIKE, consistent with GJR-GARCH's
+asymmetric term allowing it to react more quickly to the volatility increases that typically follow
+negative returns -- the well-documented leverage effect in equity index returns -- a pattern that
+neither plain GARCH nor EWMA can capture. EWMA, despite having no fitted parameters and no
+mean-reversion mechanism, remains within approximately 12\% of GJR-GARCH on MAE, confirming its
+role as a reasonable naive benchmark rather than a negligible one.
+
+These results should be interpreted as a first, partial answer to Research Question 1: among the
+econometric models considered, explicitly modelling volatility asymmetry improves out-of-sample
+forecasting accuracy. Whether this advantage persists, narrows, or is overturned once the machine
+learning models are introduced -- and whether it translates into materially better market-risk
+measures -- is assessed in the following subsections.
+
+\subsection{Machine Learning Model Comparison}\label{sec:ml_comparison}
+% ============================================================
+Table~\ref{tab:full_comparison} extends the comparison to include Random Forest and XGBoost,
+trained on the six-feature set described in Section~\ref{sec:ml_features} and evaluated over the
+same out-of-sample test period and criteria as the econometric models.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & \textbf{MAE} & \textbf{RMSE} & \textbf{QLIKE} \\
+\midrule
+EWMA          & 0.04925 & 0.07656 & 0.43662 \\
+GARCH(1,1)    & 0.04763 & 0.07197 & 0.38670 \\
+GJR-GARCH     & 0.04358 & 0.06485 & 0.34217 \\
+Random Forest & 0.04341 & 0.07137 & 0.41497 \\
+XGBoost       & 0.04457 & 0.07471 & 0.42450 \\
+\bottomrule
+\end{tabular}
+\caption{Out-of-sample forecasting performance across all econometric and machine learning models, 2023--2026.}
+\label{tab:full_comparison}
+\end{table}
+
+No single model dominates across all three criteria, though the margins differ substantially.
+Random Forest achieves the lowest MAE of any model (0.04341), narrowly ahead of GJR-GARCH (0.04358)
+by 0.39\% -- a gap small enough that its statistical significance is assessed formally in
+Section~\ref{sec:dm} rather than treated as decisive here. XGBoost trails both, ranking third on
+MAE. On RMSE and QLIKE, GJR-GARCH is unambiguously the best-performing model, ahead of the
+next-best model (Random Forest on RMSE, GARCH(1,1) on QLIKE) by approximately 9\% and 12\%
+respectively, and neither machine learning model improves on the symmetric GARCH(1,1) benchmark
+under QLIKE.
+
+These results provide a direct, though qualified, answer to the first part of Research Question 1.
+Under the strictly out-of-sample, leakage-controlled framework adopted in this thesis, machine
+learning offers at most a marginal advantage over the best econometric model on average
+point-forecast accuracy, and no advantage once larger errors and tail risk are weighted more
+heavily. This finding is consistent with \citet{poon2003}'s observation that forecast rankings are
+sensitive to the evaluation criterion used, which extends naturally from the choice of
+realised-volatility proxy they discuss to the choice between machine learning and econometric model
+families. GJR-GARCH remains the strongest single model overall, ranking among the best two models
+under every criterion considered. Whether the narrow Random Forest advantage on MAE is statistically
+distinguishable from GJR-GARCH's performance is assessed via a Diebold-Mariano test in
+Section~\ref{sec:dm}, once the hybrid model (Section~\ref{sec:hybrid}) has also been evaluated.
+
+\subsection{Market Risk and Backtesting}
+% ============================================================
+Table~\ref{tab:kupiec_results} reports Kupiec unconditional coverage test results for all six
+models at the 95\% and 99\% confidence levels. All models pass comfortably at 95\%. At 99\%, the
+three econometric models remain comfortably calibrated ($p \geq 0.46$ in all three cases). Random
+Forest is borderline, passing only marginally ($p=0.0535$, just above the conventional 5\%
+threshold), while XGBoost and the hybrid model both fail outright -- the hybrid landing on exactly
+XGBoost's violation count and statistics (17 violations; LR $=6.179$, $p=0.0129$), consistent with
+the inherited-tail-weakness mechanism discussed in Section~\ref{sec:hybrid_results}.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lccccc}
+\toprule
+Model & Confidence & Violation Rate (\%) & Nominal Rate (\%) & LR Statistic & $p$-value \\
+\midrule
+EWMA           & 95\% & 5.03 & 5.00 & 0.002 & 0.9629 \\
+EWMA           & 99\% & 1.26 & 1.00 & 0.546 & 0.4601 \\
+GARCH(1,1)     & 95\% & 4.23 & 5.00 & 1.138 & 0.2861 \\
+GARCH(1,1)     & 99\% & 1.14 & 1.00 & 0.175 & 0.6754 \\
+GJR-GARCH      & 95\% & 3.89 & 5.00 & 2.446 & 0.1178 \\
+GJR-GARCH      & 99\% & 1.14 & 1.00 & 0.175 & 0.6754 \\
+Random Forest  & 95\% & 5.84 & 5.00 & 1.221 & 0.2691 \\
+Random Forest  & 99\% & 1.72 & 1.00 & 3.730 & 0.0535 \\
+XGBoost        & 95\% & 6.06 & 5.00 & 1.957 & 0.1619 \\
+XGBoost        & 99\% & 2.06 & 1.00 & 7.588 & 0.0059 \\
+Hybrid         & 95\% & 5.38 & 5.00 & 0.256 & 0.6127 \\
+Hybrid         & 99\% & 1.95 & 1.00 & 6.179 & 0.0129 \\
+\bottomrule
+\end{tabular}
+\caption{Kupiec unconditional coverage test results across all models and confidence levels.}
+\label{tab:kupiec_results}
+\end{table}
+
+Table~\ref{tab:es_backtest} compares the mean realised shortfall on violation days against the
+corresponding Expected Shortfall forecast. Realised shortfall exceeds the forecast ES for every
+model at both confidence levels, with the excess ranging from approximately 8\% to 24\% among the
+standalone models, and reaching approximately 16--18\% for the hybrid model. This pattern is
+consistent across all model families, which suggests it reflects the shared Gaussian distributional
+assumption underlying the VaR and ES calculation (Section~\ref{sec:market_risk}) rather than a
+weakness specific to any individual volatility forecast: financial returns are known to exhibit
+heavier tails than the Gaussian distribution, so realised losses on the worst days tend to exceed
+what a Gaussian-based Expected Shortfall anticipates. This is a known and expected limitation of the
+modelling choice made in this thesis rather than an unexpected finding, and is discussed further in
+the conclusions.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+Model          & Confidence & Mean Realised Shortfall (\%) & Mean Forecast ES (\%) & Excess (\%) \\
+\midrule
+EWMA           & 95\% & 3.94 & 3.59 & 9.84 \\
+EWMA           & 99\% & 6.05 & 4.98 & 21.46 \\
+GARCH(1,1)     & 95\% & 4.11 & 3.81 & 7.89 \\
+GARCH(1,1)     & 99\% & 6.44 & 5.50 & 17.02 \\
+GJR-GARCH      & 95\% & 4.14 & 3.71 & 11.48 \\
+GJR-GARCH      & 99\% & 6.40 & 5.65 & 13.34 \\
+Random Forest  & 95\% & 3.88 & 3.29 & 17.97 \\
+Random Forest  & 99\% & 5.36 & 4.33 & 23.90 \\
+XGBoost        & 95\% & 3.83 & 3.29 & 16.61 \\
+XGBoost        & 99\% & 5.22 & 4.26 & 22.45 \\
+Hybrid         & 95\% & 3.88 & 3.34 & 16.21 \\
+Hybrid         & 99\% & 5.24 & 4.43 & 18.11 \\
+\bottomrule
+\end{tabular}
+\caption{Expected Shortfall backtest: mean realised shortfall vs. forecasted ES on violation days.}
+\label{tab:es_backtest}
+\end{table}
+
+Figure~\ref{fig:forecast_error} shows the forecast error (actual minus forecast) for GJR-GARCH and
+XGBoost over the test period. Both models record their largest single underprediction on the same
+date, 2 April 2025, when realised annualised volatility reached 86.3\%: GJR-GARCH forecast 17.3\%
+(an underprediction of 69.0 percentage points) and XGBoost forecast 13.3\% (an underprediction of
+73.0 percentage points). The gap between the two models on this single worst day is modest, and
+this episode alone is not strong evidence that GJR-GARCH copes better with extreme volatility than
+XGBoost. The more reliable evidence for that claim is the aggregate pattern across the full test
+period: XGBoost's QLIKE, Kupiec, and Expected Shortfall results are each independently weaker than
+GJR-GARCH's, computed from all 874 out-of-sample observations rather than a single extreme event.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{forecast_error_test.pdf}
+\caption{Forecast error (actual minus forecast) for GJR-GARCH and XGBoost over the out-of-sample
+test period. Positive values indicate underprediction of realised volatility. Both models record
+their largest underprediction on 2 April 2025.}
+\label{fig:forecast_error}
+\end{figure}
+
+As discussed in Section~\ref{sec:backtesting}, the full-sample Christoffersen independence test is
+affected by mechanical serial correlation arising from the overlapping five-day forecast horizon and
+is therefore not reported as the primary evidence of independence. Table~\ref{tab:christoffersen_nonoverlap}
+reports the Christoffersen test applied instead to a non-overlapping subsample of forecast dates. All
+six models pass comfortably ($p > 0.32$ in every case), indicating that, once the structural overlap
+is removed, VaR violations do not cluster in time for any of the models considered.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+Model          & $n$ & Violations & LR Statistic & $p$-value \\
+\midrule
+EWMA           & 175 & 9 & 0.982 & 0.3216 \\
+GARCH(1,1)     & 175 & 7 & 0.587 & 0.4436 \\
+GJR-GARCH      & 175 & 6 & 0.429 & 0.5126 \\
+Random Forest  & 175 & 9 & 0.982 & 0.3216 \\
+XGBoost        & 175 & 9 & 0.982 & 0.3216 \\
+Hybrid         & 175 & 7 & 0.587 & 0.4436 \\
+\bottomrule
+\end{tabular}
+\caption{Christoffersen independence test on a non-overlapping subsample (every 5th test date, 95\% confidence).}
+\label{tab:christoffersen_nonoverlap}
+\end{table}
+
+\subsection{Hybrid Model Results}\label{sec:hybrid_results}
+% ============================================================
+Table~\ref{tab:hybrid_comparison} extends the model comparison to include the hybrid specification.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & \textbf{MAE} & \textbf{RMSE} & \textbf{QLIKE} \\
+\midrule
+EWMA          & 0.04925 & 0.07656 & 0.43662 \\
+GARCH(1,1)    & 0.04763 & 0.07197 & 0.38670 \\
+GJR-GARCH     & 0.04358 & 0.06485 & 0.34217 \\
+Random Forest & 0.04341 & 0.07137 & 0.41497 \\
+XGBoost       & 0.04457 & 0.07471 & 0.42450 \\
+Hybrid (GJR-GARCH + XGBoost) & 0.04019 & 0.06256 & 0.38484 \\
+\bottomrule
+\end{tabular}
+\caption{Out-of-sample forecasting performance across all models, including the hybrid specification, 2023--2026.}
+\label{tab:hybrid_comparison}
+\end{table}
+
+The hybrid model achieves the lowest MAE and RMSE of any model considered in this thesis, improving
+on GJR-GARCH -- already the strongest standalone model -- by 7.8\% on MAE and 3.5\% on RMSE. On
+QLIKE, however, it ranks second, behind GJR-GARCH and only marginally ahead of GARCH(1,1) (0.38484
+versus 0.38670). This is the first indication that the hybrid's improvement in average point-forecast
+accuracy does not extend uniformly to the loss function most directly relevant to risk management.
+
+Table~\ref{tab:kupiec_results} confirms this directly. At 95\% confidence the hybrid passes the
+Kupiec test comfortably. At 99\%, it fails -- by exactly the same margin as XGBoost (17 violations
+out of 874; LR $=6.179$, $p=0.0129$) -- despite being built on GJR-GARCH, the best-calibrated model
+in this thesis at this confidence level. Expected Shortfall backtesting shows the same
+deterioration: excess over forecasted ES rises from 11.48\%/13.34\% for GJR-GARCH alone to
+16.21\%/18.11\% for the hybrid, at 95\% and 99\% confidence respectively.
+
+This outcome traces to a specific, identifiable mechanism. GJR-GARCH's forecasts run systematically
+high over the test period (mean forecast 0.1425 against mean realised volatility 0.1285), and
+the residual model correctly learns to shade this down: its correction is negative on 91.1\% of
+days, with a mean adjustment of $-0.017$. This reduces symmetric error, which is why MAE and RMSE
+improve. The same downward shift, however, increases the share of days on which the hybrid
+underpredicts realised volatility from 32.7\% under GJR-GARCH alone to 46.3\% under the hybrid --
+precisely the failure mode QLIKE penalises asymmetrically and that drives VaR violations. On the
+days the 99\% VaR is actually breached, the correction is more negative still (mean $-0.022$) than
+on an average day: the residual model shades hardest exactly where doing so is most costly.
+Consistent with this mechanism, the hybrid's 17 violation dates at 99\% overlap with 15 of
+XGBoost's and 16 of Random Forest's, but with only 9 of GJR-GARCH's own -- the hybrid's tail
+behaviour resembles the machine learning models it inherited its correction from, not the
+econometric model it was built on.
+
+These results provide a complete, though qualified, answer to Research Question 2. Combining
+GJR-GARCH with a machine learning residual correction improves average forecasting accuracy by a
+larger margin than any standalone model achieves relative to any other. It does not improve, and in
+this case actively worsens, calibration at the confidence level most relevant to market-risk
+management, reproducing at the model-combination level the same pattern already observed for the
+standalone machine learning models. This should not be read as a straightforward improvement: the
+correct interpretation is that combining an econometric model with a machine learning correction can
+produce the best available point forecasts while simultaneously producing worse risk-management
+properties than the econometric model alone -- directly reinforcing this thesis's central finding
+that improvements in standard forecast-accuracy metrics do not automatically translate into
+improvements in market-risk measurement.
+
+A methodological caveat is worth stating plainly. The residual model is trained on in-sample
+residuals from a single GJR-GARCH fit over the training period, rather than on out-of-sample
+walk-forward residuals, since GJR-GARCH's econometric behaviour was already separately validated
+(Section~\ref{sec:oos}). In-sample residuals are typically smaller and less variable than genuine
+out-of-sample errors, which would, if anything, be expected to bias the residual model toward
+\emph{under}-correcting relative to what it would learn from harder, walk-forward-derived training
+data. Since the hybrid's problem here is over-correction in the downward direction, this caveat does
+not explain away the tail-calibration result; a residual model trained on genuinely out-of-sample
+errors would plausibly shade forecasts down more aggressively still, not less.
+
+\subsubsection{A Quantile-Loss Variant: Diagnosis and Limits}\label{sec:hybrid_quantile}
+
+Motivated by the mechanism identified above -- a symmetric-loss residual correction improves
+average accuracy at the cost of tail calibration -- a second hybrid variant was constructed to test
+whether aligning the residual model's training objective with the actual risk-management target
+would resolve this trade-off. Because Value at Risk at confidence level $\alpha$ is itself the
+$(1-\alpha)$ quantile of the loss distribution, the residual model was retrained using a quantile
+(pinball) loss, targeting an upper quantile of GJR-GARCH's in-sample residual distribution rather
+than its conditional mean. All other aspects of the hybrid specification -- baseline model,
+features, refit cadence -- are unchanged from Section~\ref{sec:hybrid}.
+
+The quantile level was selected using only the training period (2011--2022), split chronologically
+into an inner-training set (2011--2019) and an inner-validation set (2020--2022), with the test
+period never consulted during selection. The selection criterion was revised once during this
+process: an initial rule based solely on maximising the 99\% Kupiec $p$-value on the validation set
+proved degenerate, since it is unbounded and would select an arbitrarily wide, uninformative
+forecast purely because it is trivially well-calibrated. It was replaced with a rule requiring the
+lowest validation-set MAE among candidates that also achieve acceptable 99\% coverage. This revision
+was made using validation-period results only, before the test period was examined, but constitutes
+a mild form of selection on validation data and is disclosed here for transparency. Under the
+revised criterion, $\alpha=0.95$ was selected.
+
+On the test period, this variant performs substantially worse than either GJR-GARCH alone or the
+symmetric-loss hybrid, and is the worst-performing model considered anywhere in this thesis
+(Table~\ref{tab:hybrid_quantile_comparison}). MAE more than doubles relative to GJR-GARCH (0.0972
+versus 0.0436). The residual correction is now positive on every test day, and the resulting
+forecast exceeds realised volatility on 94.16\% of test days (mean forecast 0.218 against mean
+realised volatility 0.129). Its 99\% VaR fails calibration in the opposite direction to the
+symmetric hybrid: 0.23\% observed violations against a 1\% nominal rate, rather than too many
+(Table~\ref{tab:hybrid_quantile_kupiec}).
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lccc}
+\toprule
+Model & MAE & RMSE & QLIKE \\
+\midrule
+GJR-GARCH & 0.04358 & 0.06485 & 0.34217 \\
+Hybrid (symmetric) & 0.04019 & 0.06256 & 0.38484 \\
+Hybrid (quantile, $\alpha=0.95$) & 0.09715 & 0.11896 & 0.62505 \\
+\bottomrule
+\end{tabular}
+\caption{Forecasting performance of the quantile-loss hybrid variant against GJR-GARCH and the symmetric-loss hybrid.}
+\label{tab:hybrid_quantile_comparison}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lccccc}
+\toprule
+Model & Confidence & Violation Rate (\%) & Nominal (\%) & LR & $p$-value \\
+\midrule
+GJR-GARCH           & 95\% & 3.89 & 5.00 & 2.446  & 0.1178 \\
+GJR-GARCH           & 99\% & 1.14 & 1.00 & 0.175  & 0.6754 \\
+Hybrid (symmetric)  & 95\% & 5.38 & 5.00 & 0.256  & 0.6127 \\
+Hybrid (symmetric)  & 99\% & 1.95 & 1.00 & 6.179  & 0.0129 \\
+Hybrid (quantile)   & 95\% & 0.80 & 5.00 & 49.359 & 0.0000 \\
+Hybrid (quantile)   & 99\% & 0.23 & 1.00 & 7.633  & 0.0057 \\
+\bottomrule
+\end{tabular}
+\caption{Kupiec test results for GJR-GARCH and both hybrid variants.}
+\label{tab:hybrid_quantile_kupiec}
+\end{table}
+
+The cause is not an implementation defect but a distributional one. The inner-validation period
+(2020--2022) used to select the quantile level has a substantially higher mean realised volatility
+(0.1995) than the 2023--2026 test period (0.1285) -- a regime roughly 36\% calmer than the period
+the correction was calibrated on. A 95th-percentile residual correction learned under COVID-era
+market stress is simply too large for the comparatively calm conditions of the test period. This
+illustrates a limitation more fundamental than a specific choice of hyperparameter: the residual
+distribution this correction targets is not stationary across time, so a quantile level validated
+on one historical regime does not necessarily transfer to another.
+
+This result is reported as a negative finding rather than omitted, because it is informative in its
+own right. Aligning a model's training objective with the true downstream use case is a necessary
+but not sufficient condition for a well-calibrated hybrid model; it does not by itself protect
+against non-stationarity in the quantity being modelled. Only the symmetric-loss hybrid improves on
+GJR-GARCH's point-forecast accuracy, and it does so at a cost to tail-risk calibration; the quantile
+variant improves on neither dimension, performing worse than GJR-GARCH on every forecasting metric
+considered while also failing to achieve better-calibrated tail risk. Neither variant improves on
+GJR-GARCH's own 99\% Kupiec performance, which remains the best-calibrated result in this thesis
+($p=0.6754$) throughout. GJR-GARCH alone, without either machine learning extension, remains the
+preferred model wherever calibrated tail-risk measurement is the primary objective, notwithstanding
+the point-forecast accuracy gains available from the symmetric-loss hybrid.
+
+\subsection{Statistical Significance of Forecasting Differences}\label{sec:dm}
+% ============================================================
+The comparisons in Sections~\ref{sec:ml_comparison} and \ref{sec:hybrid_results} identify
+differences in MAE, RMSE and QLIKE across models, but do not by themselves establish whether these
+differences are statistically distinguishable from zero. This is assessed using the
+Diebold-Mariano test, applied to the two comparisons in this thesis where the ranking is close
+enough to warrant formal testing: Random Forest against GJR-GARCH, and the symmetric-loss hybrid
+against GJR-GARCH.
+
+For a given loss function, let $d_t = L(\hat\sigma_t^{(a)}, \sigma_t) - L(\hat\sigma_t^{(b)}, \sigma_t)$
+denote the loss differential between models $a$ and $b$ at date $t$. The Diebold-Mariano test
+evaluates the null hypothesis of equal expected loss, $H_0: E[d_t] = 0$. Because forecasts in this
+thesis are constructed over a five-day horizon while produced daily, consecutive loss differentials
+overlap and share underlying return information -- the same structural feature that required a
+non-overlapping subsample for the Christoffersen independence test (Section~\ref{sec:backtesting}).
+Rather than subsampling, which would discard most of the test period for a test of this kind, the
+statistic here uses a Newey-West heteroskedasticity- and autocorrelation-consistent (HAC) variance
+estimator with a Bartlett kernel at four lags, matching the overlap length implied by the five-day
+horizon. This choice affects the strength, though not the binary significance verdict, of two
+comparisons: GJR-GARCH versus Random Forest and GJR-GARCH versus the hybrid model, both on RMSE,
+sit just above the 5\% threshold under the naive i.i.d.\ assumption ($p=0.054$ in both cases) and
+are pushed substantially further from significance once the overlap-induced autocorrelation is
+properly accounted for ($p=0.215$ and $p=0.163$ respectively). The HAC correction therefore does not
+reverse any conclusion reached under the naive assumption, but it does show that the apparent
+borderline evidence in these two cases was considerably weaker than a naive analysis would suggest,
+reinforcing rather than merely permitting the use of a robust variance estimator here.
+
+Table~\ref{tab:dm_results} reports the results. Random Forest's narrow MAE advantage over GJR-GARCH
+(Section~\ref{sec:ml_comparison}) is not statistically significant ($p=0.910$): the 0.4\% gap
+between the two models is consistent with sampling noise rather than a genuine difference in
+forecasting ability. GJR-GARCH's RMSE advantage over Random Forest is also not significant
+($p=0.215$), but its QLIKE advantage is ($p=0.016$). For the hybrid comparison, the hybrid's MAE
+improvement over GJR-GARCH is statistically significant ($p=0.005$) -- the one genuinely confirmed
+forecasting gain identified anywhere in this thesis -- while its RMSE improvement is not
+($p=0.163$). GJR-GARCH's QLIKE advantage over the hybrid is significant ($p=0.029$), confirming
+that the hybrid's tail-calibration cost, documented mechanistically in Section~\ref{sec:hybrid_results},
+is a statistically genuine effect rather than an artefact of a single unusual period.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{llcccl}
+\toprule
+Comparison & Loss & DM statistic & $p$-value & Lower loss & Significant (5\%) \\
+\midrule
+GJR-GARCH vs.\ Random Forest & MAE   & 0.113  & 0.910 & Random Forest & No \\
+GJR-GARCH vs.\ Random Forest & RMSE  & $-$1.241 & 0.215 & GJR-GARCH     & No \\
+GJR-GARCH vs.\ Random Forest & QLIKE & $-$2.417 & 0.016 & GJR-GARCH     & Yes \\
+GJR-GARCH vs.\ Hybrid        & MAE   & 2.808  & 0.005 & Hybrid        & Yes \\
+GJR-GARCH vs.\ Hybrid        & RMSE  & 1.396  & 0.163 & Hybrid        & No \\
+GJR-GARCH vs.\ Hybrid        & QLIKE & $-$2.184 & 0.029 & GJR-GARCH     & Yes \\
+\bottomrule
+\end{tabular}
+\caption{Diebold-Mariano test results (Newey-West HAC variance, Bartlett kernel, 4 lags). $n=874$ for all comparisons.}
+\label{tab:dm_results}
+\end{table}
+
+These results sharpen the answers to both research questions. On Research Question 1, the apparent
+machine learning advantage identified in Section~\ref{sec:ml_comparison} does not survive formal
+testing: Random Forest's MAE ranking is not statistically distinguishable from GJR-GARCH's, while
+GJR-GARCH's QLIKE advantage is. On Research Question 2, the hybrid model's improvement in average
+forecasting accuracy is the one confirmed statistically significant gain identified anywhere in this
+thesis, but it comes at a significant, not merely apparent, cost in tail-risk-relevant accuracy.
+
+\section{Conclusions}
+% ============================================================
+
+This thesis set out to evaluate whether machine learning methods improve the out-of-sample
+forecasting of financial market volatility relative to traditional econometric models, whether any
+such improvement translates into more accurate market-risk measures, and whether combining
+econometric and machine learning approaches offers additional value over either alone.
+
+On forecasting accuracy, the initial evidence for a machine learning advantage does not survive
+formal testing. Random Forest's apparent MAE edge over GJR-GARCH is not statistically significant
+(Diebold-Mariano $p=0.910$; Section~\ref{sec:dm}): despite producing the lowest MAE among the five
+standalone models, this ranking is consistent with sampling noise rather than a genuine forecasting
+advantage. GJR-GARCH's advantage on QLIKE, by contrast, is statistically significant against both
+machine learning models. The honest answer to the first part of Research Question 1 is therefore
+that machine learning offers no statistically demonstrable improvement in out-of-sample volatility
+forecasting over a well-specified econometric benchmark in this setting, and shows a significant
+disadvantage under the criterion most relevant to risk management.
+
+The market-risk results reinforce this conclusion. At 99\% confidence, XGBoost fails the Kupiec test
+outright, and Random Forest passes only marginally ($p=0.0535$), while all three econometric models
+remain comfortably calibrated ($p \geq 0.46$). That both machine learning models show weaker tail
+calibration than every econometric model at this confidence level -- one failing outright, the
+other only narrowly avoiding the same fate -- suggests a systematic weakness in tail-risk
+calibration associated with the tree-based approach considered here, consistent with these models'
+inability to extrapolate parametrically beyond previously observed volatility levels. Once the
+mechanical serial correlation induced by the overlapping five-day forecast horizon is accounted for
+via a non-overlapping subsample, none of the five standalone models exhibits genuine clustering of
+VaR violations. Where all five do share a common weakness is in the magnitude of losses on days VaR
+is breached: realised shortfall exceeds forecasted Expected Shortfall for every model at both
+confidence levels, with excess ranging from approximately 8\% to 24\%. Because this pattern is
+uniform across model families, it is best attributed to the shared Gaussian distributional
+assumption used throughout this thesis rather than to any individual forecast; a fat-tailed
+alternative, such as a Student-$t$ distribution, would be expected to narrow, though not necessarily
+eliminate, this gap.
+
+Research Question 2 asked whether combining GJR-GARCH with a machine learning residual correction
+adds value over either component alone. The answer is genuinely two-sided, and this is the central
+finding of this thesis. The hybrid model achieves the lowest MAE and RMSE of any model considered,
+and its MAE improvement over GJR-GARCH is the one statistically significant forecasting gain
+identified anywhere in this study (Diebold-Mariano $p=0.005$). At the same time, it fails the 99\%
+Kupiec test by exactly the same margin as XGBoost, and this deterioration traces to a specific,
+demonstrated mechanism: the residual correction learns a near-uniform downward shift, appropriate on
+average but applied indiscriminately, that shades hardest exactly on the days it is most costly to
+do so. The hybrid's tail-risk violations overlap overwhelmingly with the machine learning models'
+own violations rather than with GJR-GARCH's, and GJR-GARCH's QLIKE advantage over the hybrid is
+itself statistically significant. A subsequent attempt to correct this weakness directly, by training
+the residual model with a quantile loss aligned with the definition of Value at Risk itself, made the
+problem worse rather than better: the resulting model was the least accurate considered anywhere in
+this thesis, its calibration failure traced to non-stationarity in the residual distribution between
+the validation period used to select it and the test period.
+
+Taken together, this thesis's central finding is that improvements in standard point-forecast
+accuracy do not translate automatically into improvements in market-risk measurement, and in the
+case of the hybrid model considered here, a statistically confirmed forecasting improvement is
+accompanied by a statistically confirmed deterioration in the one property -- tail-risk calibration
+-- that this thesis's second half exists to evaluate. GJR-GARCH alone, without either machine
+learning extension, remains the best-calibrated model in this thesis at the confidence level most
+relevant to market risk management, and no model or model combination considered here improves on
+it in that specific respect.
+
+This analysis is subject to several limitations. It is based on a single asset over a single
+out-of-sample window, and the extent to which these results generalise to other assets, markets, or
+periods is not established here. The market-risk measures rely on a parametric Gaussian
+distributional assumption, which is shown to systematically understate realised shortfall; a
+fat-tailed alternative was considered outside the scope of this thesis but represents a natural
+extension. The residual model underlying both hybrid variants is trained on in-sample residuals from
+a single GJR-GARCH fit rather than on genuinely out-of-sample walk-forward residuals; this is not a
+source of look-ahead bias, since every training-period date precedes the test window entirely, but
+it is a simplification whose robustness to a harder, walk-forward-derived training signal was not
+tested. Finally, the quantile-loss hybrid's failure illustrates a limitation more general than any
+single hyperparameter choice: aligning a model's training objective with its true downstream use is
+necessary but not sufficient when the quantity being modelled is not stable across time, and any
+future extension in this direction would need to address that non-stationarity directly rather than
+through a fixed, validation-period-selected correction.
+
+\subsection{Directions for Future Research}
+% ============================================================
+Several extensions follow directly from findings in this thesis, rather than from a general
+wish to increase complexity.
+
+\begin{itemize}
+    \item \textbf{Regime-aware residual correction.} The quantile-loss hybrid variant failed
+    because a correction calibrated on one volatility regime did not transfer to a calmer one
+    (Section~\ref{sec:hybrid_quantile}). A natural extension is a residual correction that
+    conditions explicitly on the current volatility regime -- for example, using recent realised
+    volatility relative to its longer-run average as an additional input -- rather than applying
+    a single fixed correction learned once.
+
+    \item \textbf{Fat-tailed distributional assumptions.} The Gaussian assumption used throughout
+    this thesis systematically understates realised shortfall (Section~\ref{sec:market_risk}). A
+    Student-$t$ or other fat-tailed distribution for VaR and Expected Shortfall would test whether
+    this gap narrows, and by how much, without requiring any change to the underlying volatility
+    forecasts.
+
+    \item \textbf{Alternative hybrid architectures.} This thesis combines GJR-GARCH and XGBoost
+    additively, with the machine learning component predicting GJR-GARCH's residual error. A
+    weighted or learned combination of the two models' independent forecasts, rather than a
+    residual correction applied to one baseline, represents a structurally different approach
+    worth comparing directly against the results reported here.
+
+    \item \textbf{Walk-forward residual training.} The hybrid's residual model is trained on a
+    single in-sample fit rather than genuinely out-of-sample residuals (Section~\ref{sec:hybrid}).
+    Repeating the analysis with walk-forward-derived training residuals would test the robustness
+    of the tail-calibration finding to this simplification.
+
+    \item \textbf{Generalisation beyond a single asset and period.} All results in this thesis are
+    specific to the S\&P 500 over 2023--2026. Replicating the comparison on other equity indices,
+    other asset classes, or other out-of-sample windows would establish whether the disconnect
+    between forecasting accuracy and risk calibration identified here is a general property of
+    this modelling approach or specific to the conditions studied.
+\end{itemize}
+\section*{Declaration of AI Use}
+% ============================================================
+This thesis was developed with assistance from Claude (Anthropic), used in two
+capacities: as a conversational assistant for methodological discussion, drafting and revising
+this document, and reviewing code and results for correctness; and, via Claude Code, for
+implementing the data pipeline, econometric and machine learning models, and statistical
+analyses described, under the author's direct instruction and review at every stage. This
+iterative process included several rounds of auditing that identified and corrected genuine
+implementation errors -- including feature-timing inconsistencies, forecast staleness in the
+walk-forward evaluation, and inaccuracies in reported statistics -- before they affected the
+results presented here. All code and results created using AI were reviewed and verified by the author.
+\bibliographystyle{apalike}
+\bibliography{references}
+
+\end{document}
